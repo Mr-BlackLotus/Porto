@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porto — Buku Investasi</title>
+  <meta name="description" content="Catat jual beli saham, dividen, dan pantau profit per bulan.">
+  <meta name="theme-color" content="#0D4F4A">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230D4F4A'/%3E%3Crect x='7' y='16' width='4' height='9' fill='%23fff'/%3E%3Crect x='14' y='10' width='4' height='15' fill='%23fff'/%3E%3Crect x='21' y='6' width='4' height='19' fill='%23C58A12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <a class="skip" href="#view">Lewati ke konten</a>
+  <div class="app">
+    <aside class="rail">
+      <a class="brand" href="#/dashboard" aria-label="Porto, ke dashboard">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="7" y="16" width="4" height="9"/><rect x="14" y="10" width="4" height="15"/><rect class="hot" x="21" y="6" width="4" height="19"/>
+        </svg>
+        <span>Porto</span>
+      </a>
+      <nav class="nav" id="nav" aria-label="Menu utama"></nav>
+      <div class="sync" id="sync"></div>
+    </aside>
+
+    <div class="main">
+      <header class="top">
+        <h1 id="page-title">Dashboard</h1>
+        <div class="actions">
+          <button class="btn ghost" id="btn-refresh" type="button">Perbarui harga</button>
+          <button class="btn outline" id="btn-add-div" type="button">Catat dividen</button>
+          <button class="btn primary" id="btn-add-trx" type="button">Catat transaksi</button>
+        </div>
+      </header>
+      <main id="view" tabindex="-1"></main>
+    </div>
+
+    <nav class="tabbar" id="tabbar" aria-label="Menu utama"></nav>
+  </div>
+
+  <dialog id="dlg"></dialog>
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="js/calc.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
