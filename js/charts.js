@@ -13,6 +13,7 @@
     if (a >= 1e9) return s + f(a / 1e9) + ' M';
     if (a >= 1e6) return s + f(a / 1e6) + ' jt';
     if (a >= 1e3) return s + f(a / 1e3) + ' rb';
+    if (a < 10 && a % 1) return s + (Math.round(a * 100) / 100).toString().replace('.', ',');
     return s + Math.round(a);
   }
 
@@ -38,6 +39,7 @@
    */
   function monthly(months, opts) {
     opts = opts || {};
+    var fmt = opts.fmt || rp;
     if (!months.length) return '';
     var H = opts.height || 280;
     var m = { l: 58, r: 14, t: 26, b: 44 };
@@ -105,9 +107,9 @@
       if (showYear) out.push('<text x="' + cx + '" y="' + (H - m.b + 31) + '" text-anchor="middle" style="font-weight:700">' + x.month.slice(0, 4) + '</text>');
 
       var tip = monthLabel(x.month) + ' ' + x.month.slice(0, 4) +
-        '\nProfit jual: ' + rp(x.realized) +
-        '\nDividen: ' + rp(x.dividend) +
-        '\nTotal: ' + rp(x.total);
+        '\nProfit jual: ' + fmt(x.realized) +
+        '\nDividen: ' + fmt(x.dividend) +
+        '\nTotal: ' + fmt(x.total);
       out.push('<rect class="hit" x="' + (cx - slot / 2) + '" y="' + m.t + '" width="' + slot + '" height="' + plotH + '"><title>' + esc(tip) + '</title></rect>');
     });
 

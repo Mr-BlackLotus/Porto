@@ -1,8 +1,9 @@
-/* Porto — antarmuka aplikasi. */
+/* Porto — antarmuka aplikasi (saham Indonesia, saham US, crypto). */
 (function () {
   'use strict';
 
   var C = Calc, S = Store;
+  var MK = C.MARKETS, ORDER = C.MARKET_ORDER;
 
   // ---------- util ----------
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -12,21 +13,35 @@
     });
   }
 
-  var nf = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
-  var nf2 = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 });
   var MON = Charts.MONTHS;
-
-  function rp(n) { return (n < -0.5 ? '−' : '') + 'Rp ' + nf.format(Math.abs(Math.round(n))); }
-  function rpSigned(n) {
-    var r = Math.round(n);
-    return (r > 0 ? '+' : r < 0 ? '−' : '') + 'Rp ' + nf.format(Math.abs(r));
+  var fmtCache = {};
+  function nfFor(min, max) {
+    var k = min + '-' + max;
+    return fmtCache[k] || (fmtCache[k] = new Intl.NumberFormat('id-ID', { minimumFractionDigits: min, maximumFractionDigits: max }));
   }
+
+  function idr(n) { return (n < -0.5 ? '−' : '') + 'Rp ' + nfFor(0, 0).format(Math.abs(Math.round(n))); }
+  function usd(n) {
+    var r = Math.round(n * 100) / 100;
+    return (r < 0 ? '−' : '') + 'US$ ' + nfFor(2, 2).format(Math.abs(r));
+  }
+  function money(n, ccy) { return ccy === 'USD' ? usd(n) : idr(n); }
+  function sgn(n, ccy) { var t = ccy === 'USD' ? 0.005 : 0.5; return n > t ? 1 : n < -t ? -1 : 0; }
+  function moneySigned(n, ccy) {
+    var s = sgn(n, ccy);
+    return s === 0 ? money(0, ccy) : (s > 0 ? '+' : '−') + money(Math.abs(n), ccy);
+  }
+  function cls(n, ccy) { var s = sgn(n, ccy); return s > 0 ? 'gain' : s < 0 ? 'loss' : 'flat'; }
   function pct(n) {
     var r = Math.round(n * 100) / 100;
     return (r > 0 ? '+' : r < 0 ? '−' : '') + Math.abs(r).toFixed(2).replace('.', ',') + '%';
   }
-  function px(n) { return nf2.format(n); }
-  function cls(n) { var r = Math.round(n); return r > 0 ? 'gain' : r < 0 ? 'loss' : 'flat'; }
+  function pxf(n, ccy) {
+    var max = Math.abs(n) < 1 ? 6 : 2;
+    var min = ccy === 'USD' ? Math.min(2, max) : 0;
+    return nfFor(min, max).format(n);
+  }
+  function qtyf(n, mk) { return mk === 'ID' ? nfFor(0, 0).format(n) : nfFor(0, 8).format(n); }
   function fmtDate(d) {
     d = C.day(d);
     if (!d) return '–';
@@ -40,6 +55,26 @@
     return new Date(ms).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace('.', ':');
   }
 
+  // ---------- pasar & mata uang ----------
+  function ccyOf(mk) { return mk === 'CRYPTO' ? S.settings.cryptoCcy : MK[mk].ccy; }
+  function rateOf(mk) { return ccyOf(mk) === 'IDR' ? 1 : (S.fx() || 0); }
+  function noun(mk) { return mk === 'CRYPTO' ? 'Reward' : 'Dividen'; }
+  function nounLower(mk) { return mk === 'CRYPTO' ? 'reward' : 'dividen'; }
+  function pill(mk, mini) { return '<span class="pill mk-' + mk.toLowerCase() + (mini ? ' mini' : '') + '">' + esc(MK[mk].short) + '</span>'; }
+  function selMarket() { return S.settings.market; }
+
+  /** Harga dalam mata uang pencatatan pasar. Crypto dikutip USD oleh sumber, dikonversi bila dicatat dalam Rupiah. */
+  function priceIn(mk, kode) {
+    var key = mk + ':' + kode;
+    var live = S.prices.items && S.prices.items[key];
+    if (live && live.price > 0) {
+      var f = (mk === 'CRYPTO' && ccyOf(mk) === 'IDR') ? S.fx() : 1;
+      if (f > 0) return { price: live.price * f, prev: live.prev > 0 ? live.prev * f : null, source: 'live', time: live.time };
+    }
+    var m = S.manual[key];
+    return m > 0 ? { price: m, prev: null, source: 'manual' } : null;
+  }
+
   var ICONS = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>',
     swap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3-3"/><path d="M20 16H6l3 3"/></svg>',
@@ -49,11 +84,11 @@
   };
 
   var ROUTES = [
-    { id: 'dashboard', label: 'Dashboard', icon: 'home' },
-    { id: 'transaksi', label: 'Transaksi', icon: 'swap' },
-    { id: 'dividen', label: 'Dividen', icon: 'coin' },
-    { id: 'bulanan', label: 'Bulanan', icon: 'chart' },
-    { id: 'pengaturan', label: 'Pengaturan', icon: 'gear' }
+    { id: 'dashboard', label: 'Dashboard', icon: 'home', markets: true },
+    { id: 'transaksi', label: 'Transaksi', icon: 'swap', markets: true },
+    { id: 'dividen', label: 'Dividen', icon: 'coin', markets: true },
+    { id: 'bulanan', label: 'Bulanan', icon: 'chart', markets: true },
+    { id: 'pengaturan', label: 'Pengaturan', icon: 'gear', markets: false }
   ];
 
   var state = {
@@ -65,21 +100,70 @@
   };
 
   var PALETTE = ['#0D4F4A', '#2C9A8E', '#7CC4B6', '#B9810F', '#7A5C2E', '#5B7A99', '#A3B3AD', '#C9D4CF'];
+  var MK_COLOR = { ID: '#0D4F4A', US: '#4C6A8C', CRYPTO: '#7A5C9E' };
 
   // ---------- perhitungan ----------
   function compute() {
     var d = S.data;
-    var ledger = C.buildLedger(d.transaksi);
-    var summary = C.summarize(ledger, d.dividen, S.priceFor);
-    var months = C.monthly(d.transaksi, ledger, d.dividen, ymd(new Date()));
-    return { d: d, ledger: ledger, summary: summary, months: months };
+    var sel = selMarket();
+    var per = {};
+    ORDER.forEach(function (mk) {
+      var trx = d.transaksi.filter(function (t) { return t.pasar === mk; });
+      var dv = d.dividen.filter(function (x) { return x.pasar === mk; });
+      var ledger = C.buildLedger(trx, MK[mk].mult);
+      per[mk] = {
+        mk: mk, trx: trx, dv: dv, ledger: ledger, ccy: ccyOf(mk), rate: rateOf(mk),
+        summary: C.summarize(ledger, dv, function (kode) { return priceIn(mk, kode); }),
+        has: trx.length > 0 || dv.length > 0
+      };
+    });
+    var all = sel === 'ALL';
+    var list = all ? ORDER.filter(function (mk) { return per[mk].has; }) : [sel];
+    var dispCcy = all ? 'IDR' : per[sel].ccy;
+    function rt(mk) { return all ? per[mk].rate : 1; }
+
+    var agg = { value: 0, cost: 0, unrealized: 0, realized: 0, dividend: 0, totalReturn: 0, totalBuy: 0, dayChange: 0 };
+    list.forEach(function (mk) {
+      var s = per[mk].summary, r = rt(mk);
+      agg.value += s.value * r;
+      agg.cost += s.cost * r;
+      agg.unrealized += s.unrealized * r;
+      agg.realized += s.realized * r;
+      agg.dividend += s.dividend * r;
+      agg.totalBuy += s.totalBuy * r;
+      agg.dayChange += s.dayChange * r;
+    });
+    agg.totalReturn = agg.realized + agg.unrealized + agg.dividend;
+    agg.unrealizedPct = agg.cost > 0 ? agg.unrealized / agg.cost * 100 : 0;
+    agg.returnPct = agg.totalBuy > 0 ? agg.totalReturn / agg.totalBuy * 100 : 0;
+
+    var months = C.mergeMonthly(list.map(function (mk) {
+      return { trx: per[mk].trx, ledger: per[mk].ledger, dividends: per[mk].dv, rate: rt(mk) };
+    }), ymd(new Date()));
+
+    var warnings = [];
+    list.forEach(function (mk) { warnings = warnings.concat(per[mk].ledger.warnings); });
+
+    var needFx = all && list.some(function (mk) { return per[mk].ccy === 'USD'; }) && !S.fx();
+    var hasData = list.some(function (mk) { return per[mk].has; });
+    return { d: d, sel: sel, all: all, per: per, list: list, dispCcy: dispCcy, rt: rt, agg: agg, months: months, warnings: warnings, needFx: needFx, hasData: hasData };
   }
 
-  function knownKodes(d) {
+  function knownKodes(mk) {
     var set = {};
-    d.transaksi.forEach(function (t) { set[t.kode] = 1; });
-    d.dividen.forEach(function (t) { set[t.kode] = 1; });
+    S.data.transaksi.concat(S.data.dividen).forEach(function (t) { if (!mk || t.pasar === mk) set[t.kode] = 1; });
     return Object.keys(set).sort();
+  }
+
+  function newWarning(before, after) {
+    for (var i = 0; i < ORDER.length; i++) {
+      var mk = ORDER[i];
+      var pick = function (t) { return t.pasar === mk; };
+      var wb = C.buildLedger(before.filter(pick), MK[mk].mult).warnings.map(function (w) { return w.id; });
+      var bad = C.buildLedger(after.filter(pick), MK[mk].mult).warnings.filter(function (w) { return wb.indexOf(w.id) < 0; })[0];
+      if (bad) return bad;
+    }
+    return null;
   }
 
   // ---------- potongan tampilan ----------
@@ -112,10 +196,17 @@
       }).join('') + '</select></div>';
   }
 
-  // ---------- halaman: dashboard ----------
-  function viewDashboard(m) {
-    var d = m.d, s = m.summary, html = '';
+  function dividendsOf(m) {
+    var out = [];
+    m.list.forEach(function (mk) {
+      per_(m, mk).dv.forEach(function (x) { out.push(Object.assign({}, x, { jumlah: C.num(x.jumlah) * m.rt(mk) })); });
+    });
+    return out;
+  }
+  function per_(m, mk) { return m.per[mk]; }
 
+  function marketBanners(m) {
+    var html = '';
     if (state.loadError) {
       html += banner('<strong>Gagal memuat dari Google Sheets.</strong> ' + esc(state.loadError) +
         ' <button class="linkbtn" data-act="reload" type="button">Coba lagi</button>', 'err');
@@ -124,206 +215,304 @@
       html += banner('<strong>Mode lokal.</strong> Data hanya tersimpan di browser ini dan harga harian tidak diperbarui otomatis. ' +
         '<a href="#/pengaturan">Hubungkan ke Google Sheets</a> untuk menyimpan data di Drive Anda dan mengaktifkan harga otomatis.');
     }
-    if (m.ledger.warnings.length) {
+    if (m.needFx) {
+      html += banner('<strong>Kurs USD ke Rupiah belum tersedia.</strong> Pasar yang dicatat dalam dolar belum ikut dihitung di tampilan Semua. ' +
+        'Hubungkan Google Sheets agar kurs terisi otomatis, atau isi kurs cadangan di <a href="#/pengaturan">Pengaturan</a>.', 'err');
+    }
+    if (m.warnings.length) {
       html += banner('<strong>Ada transaksi jual yang tidak cocok dengan kepemilikan:</strong> ' +
-        esc(m.ledger.warnings.slice(0, 2).map(function (w) { return w.message + ' (' + fmtDate(w.tanggal) + ')'; }).join('; ')) +
+        esc(m.warnings.slice(0, 2).map(function (w) { return w.message + ' (' + fmtDate(w.tanggal) + ')'; }).join('; ')) +
         '. Periksa di <a href="#/transaksi">Transaksi</a>.', 'err');
     }
-    if (S.isSheet() && s.missingPrices.length) {
-      var errs = (S.prices.errors || {});
-      var notFound = s.missingPrices.filter(function (k) { return errs[k]; });
-      html += banner('<strong>Harga belum tersedia untuk ' + esc(s.missingPrices.join(', ')) + '.</strong> Saham ini dinilai pada harga rata-rata, jadi profitnya tampil 0. ' +
-        (notFound.length ? 'Kode ' + esc(notFound.join(', ')) + ' tidak ditemukan di bursa; periksa penulisannya. ' : '') +
+    var missing = [];
+    m.list.forEach(function (mk) {
+      m.per[mk].summary.missingPrices.forEach(function (k) { missing.push({ mk: mk, kode: k }); });
+    });
+    if (S.isSheet() && missing.length) {
+      var errs = S.prices.errors || {};
+      var notFound = missing.filter(function (x) { return errs[x.mk + ':' + x.kode]; });
+      var names = missing.map(function (x) { return x.kode; });
+      html += banner('<strong>Harga belum tersedia untuk ' + esc(names.join(', ')) + '.</strong> Aset ini dinilai pada harga rata-rata, jadi profitnya tampil 0. ' +
+        (notFound.length ? 'Kode ' + esc(notFound.map(function (x) { return x.kode; }).join(', ')) + ' tidak ditemukan; periksa penulisannya. ' : '') +
         'Anda juga bisa mengisi harga manual di tabel posisi.');
     }
+    return html;
+  }
 
-    if (!d.transaksi.length) {
-      return html + emptyState('Belum ada transaksi', 'Catat pembelian pertama Anda, atau muat data contoh untuk melihat cara kerjanya.', !S.isSheet());
+  // ---------- halaman: dashboard ----------
+  function positionsTable(m) {
+    var rows = [];
+    m.list.forEach(function (mk) {
+      m.per[mk].summary.rows.forEach(function (r) { rows.push({ mk: mk, r: r, ccy: m.per[mk].ccy, rate: m.rt(mk) }); });
+    });
+    if (!rows.length) return '<div class="panel empty"><p>Semua posisi sudah dijual. Profitnya ada di total hasil dan di rincian bulanan.</p></div>';
+
+    if (m.all) {
+      rows.sort(function (a, b) { return b.r.value * b.rate - a.r.value * a.rate; });
+      var totV = 0, totU = 0;
+      var body = rows.map(function (x) {
+        var r = x.r, v = r.value * x.rate, u = r.unrealized * x.rate;
+        totV += v; totU += u;
+        var skipped = x.rate === 0;
+        return '<tr><td class="kode">' + esc(r.kode) + pill(x.mk, true) + '</td>' +
+          '<td class="num">' + qtyf(r.qty, x.mk) + '</td>' +
+          '<td class="num">' + (skipped ? '<span class="muted">–</span>' : idr(v)) + '</td>' +
+          '<td class="num ' + (skipped ? 'flat' : cls(u, 'IDR')) + '">' + (skipped ? '–' : moneySigned(u, 'IDR') + '<span class="sub">' + pct(r.unrealizedPct) + '</span>') + '</td>' +
+          '<td class="num">' + (r.dividend && !skipped ? idr(r.dividend * x.rate) : '<span class="muted">–</span>') + '</td></tr>';
+      }).join('');
+      return '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Aset</th><th class="num">Jumlah</th><th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">Dividen / reward</th></tr></thead><tbody>' + body +
+        '</tbody><tfoot><tr><td>Total</td><td></td><td class="num">' + idr(totV) + '</td><td class="num ' + cls(totU, 'IDR') + '">' + moneySigned(totU, 'IDR') + '</td><td></td></tr></tfoot></table></div>';
     }
 
-    // hero
-    var left = '<div class="hero-figure"><div class="lbl">Total hasil investasi</div>' +
-      '<div class="big ' + cls(s.totalReturn) + '">' + rpSigned(s.totalReturn) + '</div>' +
-      '<div class="sub ' + cls(s.totalReturn) + '">' + pct(s.returnPct) + ' <span class="muted">dari total dana yang dibelikan</span></div>' +
+    var mk = m.sel, ccy = m.per[mk].ccy, unit = MK[mk].unit;
+    var tv = 0, tu = 0;
+    return '<div class="panel table-wrap"><table class="tbl"><thead><tr>' +
+      '<th>Aset</th><th class="num">Jumlah (' + unit + ')</th><th class="num">Harga rata-rata</th><th class="num">Harga sekarang</th>' +
+      '<th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">' + noun(mk) + '</th></tr></thead><tbody>' +
+      rows.map(function (x) {
+        var r = x.r;
+        tv += r.value; tu += r.unrealized;
+        var priceCell;
+        if (r.hasPrice) {
+          priceCell = pxf(r.price, ccy) + (r.prev ? '<span class="sub ' + cls(r.dayChange, ccy) + '">' + pct(r.dayPct) + ' hari ini</span>' : '') +
+            (r.source === 'manual' ? '<span class="sub muted">manual <button class="linkbtn" data-act="price" data-key="' + esc(mk + ':' + r.kode) + '" type="button">ubah</button></span>' : '');
+        } else {
+          priceCell = '<span class="muted">–</span><span class="sub"><button class="linkbtn" data-act="price" data-key="' + esc(mk + ':' + r.kode) + '" type="button">Isi harga</button></span>';
+        }
+        return '<tr><td class="kode">' + esc(r.kode) + '</td>' +
+          '<td class="num">' + qtyf(r.qty, mk) + '</td>' +
+          '<td class="num">' + pxf(r.avg, ccy) + '</td>' +
+          '<td class="num">' + priceCell + '</td>' +
+          '<td class="num">' + money(r.value, ccy) + '</td>' +
+          '<td class="num ' + cls(r.unrealized, ccy) + '">' + moneySigned(r.unrealized, ccy) + '<span class="sub">' + pct(r.unrealizedPct) + '</span></td>' +
+          '<td class="num">' + (r.dividend ? money(r.dividend, ccy) : '<span class="muted">–</span>') + '</td></tr>';
+      }).join('') +
+      '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="num">' + money(tv, ccy) + '</td>' +
+      '<td class="num ' + cls(tu, ccy) + '">' + moneySigned(tu, ccy) + '</td><td></td></tr></tfoot></table></div>';
+  }
+
+  function perMarketTable(m) {
+    var tot = { value: 0, cost: 0, unrealized: 0, realized: 0, dividend: 0, totalReturn: 0 };
+    var body = m.list.map(function (mk) {
+      var p = m.per[mk], s = p.summary, r = p.rate;
+      var skipped = r === 0;
+      if (!skipped) {
+        tot.value += s.value * r; tot.cost += s.cost * r; tot.unrealized += s.unrealized * r;
+        tot.realized += s.realized * r; tot.dividend += s.dividend * r; tot.totalReturn += s.totalReturn * r;
+      }
+      function c(v, signed) {
+        if (skipped) return '<span class="muted">–</span>';
+        return signed ? moneySigned(v * r, 'IDR') : idr(v * r);
+      }
+      return '<tr><td class="kode"><button class="linkbtn" data-act="market" data-m="' + mk + '" type="button">' + esc(MK[mk].label) + '</button>' +
+        (p.ccy === 'USD' ? '<span class="sub muted" style="font-weight:500">dicatat dalam USD</span>' : '') + '</td>' +
+        '<td class="num">' + c(s.value) + '</td><td class="num">' + c(s.cost) + '</td>' +
+        '<td class="num ' + (skipped ? '' : cls(s.unrealized * r, 'IDR')) + '">' + c(s.unrealized, true) + '</td>' +
+        '<td class="num ' + (skipped ? '' : cls(s.realized * r, 'IDR')) + '">' + c(s.realized, true) + '</td>' +
+        '<td class="num">' + c(s.dividend) + '</td>' +
+        '<td class="num ' + (skipped ? '' : cls(s.totalReturn * r, 'IDR')) + '"><strong>' + c(s.totalReturn, true) + '</strong></td></tr>';
+    }).join('');
+    return '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Pasar</th><th class="num">Nilai</th><th class="num">Modal</th><th class="num">Belum terealisasi</th><th class="num">Profit jual</th><th class="num">Dividen / reward</th><th class="num">Total hasil</th></tr></thead><tbody>' + body +
+      '</tbody><tfoot><tr><td>Total</td><td class="num">' + idr(tot.value) + '</td><td class="num">' + idr(tot.cost) + '</td><td class="num">' + moneySigned(tot.unrealized, 'IDR') +
+      '</td><td class="num">' + moneySigned(tot.realized, 'IDR') + '</td><td class="num">' + idr(tot.dividend) + '</td><td class="num ' + cls(tot.totalReturn, 'IDR') + '">' + moneySigned(tot.totalReturn, 'IDR') + '</td></tr></tfoot></table></div>';
+  }
+
+  function viewDashboard(m) {
+    var html = marketBanners(m);
+    if (!m.hasData) {
+      var scope = m.all ? '' : ' di ' + MK[m.sel].label;
+      return html + emptyState('Belum ada transaksi' + scope, 'Catat pembelian pertama Anda, atau muat data contoh untuk melihat cara kerjanya.', !S.isSheet());
+    }
+    var a = m.agg, ccy = m.dispCcy;
+    var rowsAll = [];
+    m.list.forEach(function (mk) { rowsAll = rowsAll.concat(m.per[mk].summary.rows); });
+    var hasPrev = rowsAll.some(function (r) { return r.prev; });
+    var divLabel = m.all ? 'Dividen dan reward diterima' : noun(m.sel) + ' diterima';
+
+    var left = '<div class="hero-figure"><div class="lbl">Total hasil investasi' + (m.all ? ' (semua pasar, dalam Rupiah)' : '') + '</div>' +
+      '<div class="big ' + cls(a.totalReturn, ccy) + '">' + moneySigned(a.totalReturn, ccy) + '</div>' +
+      '<div class="sub ' + cls(a.totalReturn, ccy) + '">' + pct(a.returnPct) + ' <span class="muted">dari total dana yang dibelikan</span></div>' +
       '<dl class="leader">' +
-      lead('Nilai portofolio saat ini', rp(s.value)) +
-      lead('Modal saham yang dipegang', rp(s.cost)) +
-      lead('Belum terealisasi', rpSigned(s.unrealized) + ' (' + pct(s.unrealizedPct) + ')', { cls: cls(s.unrealized) }) +
-      lead('Profit jual (terealisasi)', rpSigned(s.realized), { cls: cls(s.realized) }) +
-      lead('Dividen diterima', rpSigned(s.dividend), { cls: s.dividend > 0 ? 'gain' : 'flat' }) +
-      (s.rows.some(function (r) { return r.prev; }) ? lead('Perubahan hari ini', rpSigned(s.dayChange), { cls: cls(s.dayChange) }) : '') +
+      lead('Nilai portofolio saat ini', money(a.value, ccy)) +
+      lead('Modal aset yang dipegang', money(a.cost, ccy)) +
+      lead('Belum terealisasi', moneySigned(a.unrealized, ccy) + ' (' + pct(a.unrealizedPct) + ')', { cls: cls(a.unrealized, ccy) }) +
+      lead('Profit jual (terealisasi)', moneySigned(a.realized, ccy), { cls: cls(a.realized, ccy) }) +
+      lead(divLabel, moneySigned(a.dividend, ccy), { cls: a.dividend > 0 ? 'gain' : 'flat' }) +
+      (hasPrev ? lead('Perubahan hari ini', moneySigned(a.dayChange, ccy), { cls: cls(a.dayChange, ccy) }) : '') +
       '</dl></div>';
 
     var last12 = m.months.slice(-12);
     var right = '<div class="chart-wrap"><div class="chart-head"><h2>Profit per bulan</h2>' +
-      '<div class="legend"><span><i style="background:var(--gain)"></i>Profit jual</span><span><i style="background:var(--loss)"></i>Rugi jual</span><span><i style="background:var(--dividend)"></i>Dividen</span></div></div>' +
-      '<div class="chart-scroll"><div class="chart">' + Charts.monthly(last12, { label: 'Profit per bulan, 12 bulan terakhir' }) + '</div></div>' +
-      '<p class="muted" style="font-size:13px;margin:8px 0 0">Profit jual + dividen yang diterima di bulan itu. ' +
-      (m.months.length > 12 ? '<a href="#/bulanan">Lihat semua bulan</a>' : '<a href="#/bulanan">Lihat rincian per bulan</a>') + '</p></div>';
+      '<div class="legend"><span><i style="background:var(--gain)"></i>Profit jual</span><span><i style="background:var(--loss)"></i>Rugi jual</span><span><i style="background:var(--dividend)"></i>' + (m.all ? 'Dividen / reward' : noun(m.sel)) + '</span></div></div>' +
+      '<div class="chart-scroll"><div class="chart">' + Charts.monthly(last12, { label: 'Profit per bulan, 12 bulan terakhir', fmt: function (n) { return money(n, ccy); } }) + '</div></div>' +
+      '<p class="muted" style="font-size:13px;margin:8px 0 0">Profit jual + dividen yang diterima di bulan itu. <a href="#/bulanan">' + (m.months.length > 12 ? 'Lihat semua bulan' : 'Lihat rincian per bulan') + '</a></p></div>';
 
     html += '<section class="hero">' + left + right + '</section>';
 
-    // posisi
-    html += '<section class="section"><div class="section-head"><h2>Posisi saham</h2>' +
-      '<span class="note">' + (S.prices.at ? 'Harga diperbarui ' + hhmm(S.prices.at) : 'Harga belum diperbarui') + '</span></div>';
-    if (!s.rows.length) {
-      html += '<div class="panel empty"><p>Semua posisi sudah dijual. Profitnya ada di total hasil dan di rincian bulanan.</p></div>';
-    } else {
-      html += '<div class="panel table-wrap"><table class="tbl"><thead><tr>' +
-        '<th>Saham</th><th class="num">Lot</th><th class="num">Harga rata-rata</th><th class="num">Harga sekarang</th>' +
-        '<th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">Dividen</th></tr></thead><tbody>' +
-        s.rows.map(function (r) {
-          var priceCell;
-          if (r.hasPrice) {
-            priceCell = px(r.price) + (r.prev ? '<span class="sub ' + cls(r.dayChange) + '">' + pct(r.dayPct) + ' hari ini</span>' : '') +
-              (r.source === 'manual' ? '<span class="sub muted">manual <button class="linkbtn" data-act="price" data-kode="' + esc(r.kode) + '" type="button">ubah</button></span>' : '');
-          } else {
-            priceCell = '<span class="muted">–</span><span class="sub"><button class="linkbtn" data-act="price" data-kode="' + esc(r.kode) + '" type="button">Isi harga</button></span>';
-          }
-          return '<tr><td class="kode">' + esc(r.kode) + '</td>' +
-            '<td class="num">' + nf.format(r.lot) + '</td>' +
-            '<td class="num">' + px(r.avg) + '</td>' +
-            '<td class="num">' + priceCell + '</td>' +
-            '<td class="num">' + rp(r.value) + '</td>' +
-            '<td class="num ' + cls(r.unrealized) + '">' + rpSigned(r.unrealized) + '<span class="sub">' + pct(r.unrealizedPct) + '</span></td>' +
-            '<td class="num">' + (r.dividend ? rp(r.dividend) : '<span class="muted">–</span>') + '</td></tr>';
-        }).join('') +
-        '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="num">' + rp(s.value) + '</td>' +
-        '<td class="num ' + cls(s.unrealized) + '">' + rpSigned(s.unrealized) + '</td><td class="num"></td></tr></tfoot></table></div>';
+    if (m.all) {
+      html += '<section class="section"><div class="section-head"><h2>Per pasar</h2><span class="note">Klik nama pasar untuk melihat rinciannya</span></div>' + perMarketTable(m) + '</section>';
     }
-    html += '</section>';
+
+    html += '<section class="section"><div class="section-head"><h2>Posisi</h2>' +
+      '<span class="note">' + (S.prices.at ? 'Harga diperbarui ' + hhmm(S.prices.at) : 'Harga belum diperbarui') + '</span></div>' + positionsTable(m) + '</section>';
 
     // alokasi + dividen
-    if (s.rows.length || s.dividends.byKode.length) {
-      var alloc = '';
-      if (s.rows.length) {
-        var top = s.rows.slice(0, 7);
-        var restW = s.rows.slice(7).reduce(function (a, r) { return a + r.weight; }, 0);
-        var segs = top.map(function (r, i) { return { k: r.kode, w: r.weight, c: PALETTE[i] }; });
-        if (restW > 0) segs.push({ k: 'Lainnya', w: restW, c: PALETTE[7] });
-        alloc = '<div><div class="section-head"><h2>Alokasi</h2></div>' +
-          '<div class="alloc" role="img" aria-label="Alokasi portofolio per saham">' +
-          segs.map(function (g) { return '<span title="' + esc(g.k) + ' ' + g.w.toFixed(1) + '%" style="flex:' + g.w + ';background:' + g.c + '"></span>'; }).join('') + '</div>' +
-          '<dl class="leader">' + segs.map(function (g) { return lead(esc(g.k), g.w.toFixed(1).replace('.', ',') + '%', { sw: g.c }); }).join('') + '</dl></div>';
-      }
-      var dv = '';
-      if (s.dividends.byKode.length) {
-        dv = '<div><div class="section-head"><h2>Dividen per saham</h2><a class="note" href="#/dividen">Semua dividen</a></div>' +
-          '<dl class="leader">' + s.dividends.byKode.slice(0, 7).map(function (r) {
-            return lead(esc(r.kode), rp(r.total), { cls: 'gain' });
-          }).join('') + lead('<strong>Total</strong>', '<strong>' + rp(s.dividend) + '</strong>') + '</dl></div>';
-      } else {
-        dv = '<div><div class="section-head"><h2>Dividen per saham</h2></div><p class="muted">Belum ada dividen tercatat. Gunakan tombol Catat dividen.</p></div>';
-      }
-      html += '<section class="section cols-2">' + alloc + dv + '</section>';
+    var alloc = '';
+    var segs = [];
+    if (m.all) {
+      m.list.forEach(function (mk) {
+        var v = m.per[mk].summary.value * m.per[mk].rate;
+        if (v > 0) segs.push({ k: MK[mk].label, w: v, c: MK_COLOR[mk] });
+      });
+      var tw = segs.reduce(function (x, g) { return x + g.w; }, 0);
+      segs.forEach(function (g) { g.w = tw > 0 ? g.w / tw * 100 : 0; });
+    } else {
+      var rows = m.per[m.sel].summary.rows;
+      var top = rows.slice(0, 7);
+      var restW = rows.slice(7).reduce(function (x, r) { return x + r.weight; }, 0);
+      segs = top.map(function (r, i) { return { k: r.kode, w: r.weight, c: PALETTE[i] }; });
+      if (restW > 0) segs.push({ k: 'Lainnya', w: restW, c: PALETTE[7] });
     }
+    if (segs.length) {
+      alloc = '<div><div class="section-head"><h2>Alokasi</h2></div>' +
+        '<div class="alloc" role="img" aria-label="Alokasi portofolio">' +
+        segs.map(function (g) { return '<span title="' + esc(g.k) + ' ' + g.w.toFixed(1) + '%" style="flex:' + g.w + ';background:' + g.c + '"></span>'; }).join('') + '</div>' +
+        '<dl class="leader">' + segs.map(function (g) { return lead(esc(g.k), g.w.toFixed(1).replace('.', ',') + '%', { sw: g.c }); }).join('') + '</dl></div>';
+    }
+    var ds = C.dividendSummary(dividendsOf(m));
+    var dvTitle = m.all ? 'Dividen dan reward per aset' : noun(m.sel) + ' per aset';
+    var dv;
+    if (ds.byKode.length) {
+      dv = '<div><div class="section-head"><h2>' + dvTitle + '</h2><a class="note" href="#/dividen">Semua</a></div>' +
+        '<dl class="leader">' + ds.byKode.slice(0, 7).map(function (r) { return lead(esc(r.kode), money(r.total, ccy), { cls: 'gain' }); }).join('') +
+        lead('<strong>Total</strong>', '<strong>' + money(ds.total, ccy) + '</strong>') + '</dl></div>';
+    } else {
+      dv = '<div><div class="section-head"><h2>' + dvTitle + '</h2></div><p class="muted">Belum ada yang tercatat. Gunakan tombol Catat dividen.</p></div>';
+    }
+    html += '<section class="section cols-2">' + alloc + dv + '</section>';
     return html;
   }
 
   // ---------- halaman: transaksi ----------
   function viewTransaksi(m) {
-    var d = m.d, f = state.f.trx;
-    if (!d.transaksi.length) {
-      return emptyState('Belum ada transaksi', 'Catat pembelian atau penjualan saham Anda. Profit dihitung otomatis dengan metode harga rata-rata.', !S.isSheet());
+    var f = state.f.trx;
+    var pool = m.list.reduce(function (acc, mk) { return acc.concat(m.per[mk].trx); }, []);
+    if (!pool.length) {
+      return marketBanners(m) + emptyState('Belum ada transaksi' + (m.all ? '' : ' di ' + MK[m.sel].label), 'Catat pembelian atau penjualan Anda. Profit dihitung otomatis dengan metode harga rata-rata.', !S.isSheet());
     }
-    var rows = d.transaksi.filter(function (t) {
+    var rows = pool.filter(function (t) {
       return (!f.kode || t.kode === f.kode) && (!f.jenis || t.jenis === f.jenis) && (!f.tahun || C.day(t.tanggal).slice(0, 4) === f.tahun);
     }).slice().sort(function (a, b) {
       var x = C.day(a.tanggal), y = C.day(b.tanggal);
       return x === y ? 0 : x < y ? 1 : -1;
     });
     var warnIds = {};
-    m.ledger.warnings.forEach(function (w) { warnIds[w.id] = w.message; });
+    m.warnings.forEach(function (w) { warnIds[w.id] = w.message; });
 
-    var kodeOpts = [['', 'Semua saham']].concat(knownKodes({ transaksi: d.transaksi, dividen: [] }).map(function (k) { return [k, k]; }));
-    var yearOpts = [['', 'Semua tahun']].concat(yearsOf(d.transaksi).map(function (y) { return [y, y]; }));
+    var kodes = {};
+    pool.forEach(function (t) { kodes[t.kode] = 1; });
+    var kodeOpts = [['', 'Semua aset']].concat(Object.keys(kodes).sort().map(function (k) { return [k, k]; }));
+    var yearOpts = [['', 'Semua tahun']].concat(yearsOf(pool).map(function (y) { return [y, y]; }));
 
-    var realizedSum = 0;
-    rows.forEach(function (t) { if (t.jenis === 'JUAL' && m.ledger.perTrx[t.id] != null) realizedSum += m.ledger.perTrx[t.id]; });
+    var sum = 0, skippedSum = false;
+    rows.forEach(function (t) {
+      if (t.jenis === 'JUAL' && m.per[t.pasar].ledger.perTrx[t.id] != null) {
+        if (m.rt(t.pasar) === 0) skippedSum = true;
+        else sum += m.per[t.pasar].ledger.perTrx[t.id] * m.rt(t.pasar);
+      }
+    });
 
-    var html = '<div class="filters">' +
-      selectField('ft-kode', 'Saham', f.kode, kodeOpts) +
+    var html = marketBanners(m) + '<div class="filters">' +
+      selectField('ft-kode', 'Aset', f.kode, kodeOpts) +
       selectField('ft-jenis', 'Jenis', f.jenis, [['', 'Beli dan jual'], ['BELI', 'Beli'], ['JUAL', 'Jual']]) +
       selectField('ft-tahun', 'Tahun', f.tahun, yearOpts) + '</div>';
 
     if (!rows.length) return html + '<div class="panel empty"><p>Tidak ada transaksi yang cocok dengan filter.</p></div>';
 
     html += '<div class="panel table-wrap"><table class="tbl"><thead><tr>' +
-      '<th>Tanggal</th><th>Saham</th><th>Jenis</th><th class="num">Lot</th><th class="num">Harga</th><th class="num">Nilai</th><th class="num">Fee</th><th class="num">Profit / rugi</th><th></th></tr></thead><tbody>' +
+      '<th>Tanggal</th><th>Aset</th><th>Jenis</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Nilai</th><th class="num">Fee</th><th class="num">Profit / rugi</th><th></th></tr></thead><tbody>' +
       rows.map(function (t) {
-        var gross = C.num(t.lot) * C.LOT * C.num(t.harga);
-        var pl = t.jenis === 'JUAL' ? m.ledger.perTrx[t.id] : null;
+        var ccy = ccyOf(t.pasar), mult = MK[t.pasar].mult;
+        var gross = C.qtyOf(t) * mult * C.num(t.harga);
+        var pl = t.jenis === 'JUAL' ? m.per[t.pasar].ledger.perTrx[t.id] : null;
         return '<tr><td>' + fmtDate(t.tanggal) + (t.catatan ? '<span class="sub muted" style="font-weight:500">' + esc(t.catatan) + '</span>' : '') + '</td>' +
-          '<td class="kode">' + esc(t.kode) + '</td>' +
+          '<td class="kode">' + esc(t.kode) + (m.all ? pill(t.pasar, true) : '') + '</td>' +
           '<td><span class="pill ' + (t.jenis === 'BELI' ? 'beli' : 'jual') + '">' + (t.jenis === 'BELI' ? 'Beli' : 'Jual') + '</span>' +
           (warnIds[t.id] ? ' <span class="pill warn" title="' + esc(warnIds[t.id]) + '">Melebihi kepemilikan</span>' : '') + '</td>' +
-          '<td class="num">' + nf.format(t.lot) + '</td>' +
-          '<td class="num">' + px(t.harga) + '</td>' +
-          '<td class="num">' + rp(gross) + '</td>' +
-          '<td class="num">' + (C.num(t.fee) ? rp(t.fee) : '<span class="muted">–</span>') + '</td>' +
-          '<td class="num ' + (pl == null ? 'flat' : cls(pl)) + '">' + (pl == null ? '–' : rpSigned(pl)) + '</td>' +
+          '<td class="num">' + qtyf(C.qtyOf(t), t.pasar) + '</td>' +
+          '<td class="num">' + pxf(C.num(t.harga), ccy) + '</td>' +
+          '<td class="num">' + money(gross, ccy) + '</td>' +
+          '<td class="num">' + (C.num(t.fee) ? money(t.fee, ccy) : '<span class="muted">–</span>') + '</td>' +
+          '<td class="num ' + (pl == null ? 'flat' : cls(pl, ccy)) + '">' + (pl == null ? '–' : moneySigned(pl, ccy)) + '</td>' +
           '<td class="acts"><button class="btn ghost sm" data-act="edit-trx" data-id="' + esc(t.id) + '" type="button">Ubah</button>' +
           '<button class="btn danger sm" data-act="del-trx" data-id="' + esc(t.id) + '" type="button">Hapus</button></td></tr>';
       }).join('') +
-      '</tbody><tfoot><tr><td colspan="7">' + rows.length + ' transaksi · total profit jual</td><td class="num ' + cls(realizedSum) + '">' + rpSigned(realizedSum) + '</td><td></td></tr></tfoot></table></div>';
+      '</tbody><tfoot><tr><td colspan="7">' + rows.length + ' transaksi · total profit jual' + (m.all ? ' (dalam Rupiah)' : '') + '</td>' +
+      '<td class="num ' + cls(sum, m.dispCcy) + '">' + (skippedSum ? '–' : moneySigned(sum, m.dispCcy)) + '</td><td></td></tr></tfoot></table></div>';
     return html;
   }
 
   // ---------- halaman: dividen ----------
   function viewDividen(m) {
-    var d = m.d, f = state.f.div, ds = m.summary.dividends;
-    if (!d.dividen.length) {
-      return '<div class="panel empty"><h3>Belum ada dividen</h3><p>Catat dividen yang masuk ke rekening Anda per saham. Dividen ikut dihitung dalam profit bulanan.</p><div class="row">' +
-        '<button class="btn primary" data-act="add-div" type="button">Catat dividen</button></div></div>';
+    var f = state.f.div, ccy = m.dispCcy;
+    var pool = m.list.reduce(function (acc, mk) { return acc.concat(m.per[mk].dv); }, []);
+    var nn = m.all ? 'dividen dan reward' : nounLower(m.sel);
+    if (!pool.length) {
+      return marketBanners(m) + '<div class="panel empty"><h3>Belum ada ' + nn + '</h3><p>Catat ' + nn + ' yang masuk per aset. Nilainya ikut dihitung dalam profit bulanan.</p><div class="row">' +
+        '<button class="btn primary" data-act="add-div" type="button">Catat ' + (m.all ? 'dividen' : nounLower(m.sel)) + '</button></div></div>';
     }
+    var ds = C.dividendSummary(dividendsOf(m));
     var years = Object.keys(ds.byYear).sort().reverse();
     var summary = '<div><div class="section-head"><h2>Ringkasan</h2></div><dl class="leader">' +
-      lead('Total dividen diterima', rp(ds.total), { cls: 'gain' }) +
-      years.map(function (y) { return lead('Tahun ' + y, rp(ds.byYear[y])); }).join('') + '</dl></div>';
+      lead('Total diterima', money(ds.total, ccy), { cls: 'gain' }) +
+      years.map(function (y) { return lead('Tahun ' + y, money(ds.byYear[y], ccy)); }).join('') + '</dl></div>';
 
-    var perKode = '<div><div class="section-head"><h2>Per saham</h2></div><div class="panel table-wrap"><table class="tbl"><thead><tr><th>Saham</th><th class="num">Pembayaran</th><th class="num">Total</th><th class="num">Terakhir</th></tr></thead><tbody>' +
+    var perKode = '<div><div class="section-head"><h2>Per aset</h2></div><div class="panel table-wrap"><table class="tbl"><thead><tr><th>Aset</th><th class="num">Pembayaran</th><th class="num">Total</th><th class="num">Terakhir</th></tr></thead><tbody>' +
       ds.byKode.map(function (r) {
-        return '<tr><td class="kode">' + esc(r.kode) + '</td><td class="num">' + r.count + 'x</td><td class="num">' + rp(r.total) + '</td><td class="num">' + fmtDate(r.last) + '</td></tr>';
+        return '<tr><td class="kode">' + esc(r.kode) + '</td><td class="num">' + r.count + 'x</td><td class="num">' + money(r.total, ccy) + '</td><td class="num">' + fmtDate(r.last) + '</td></tr>';
       }).join('') + '</tbody></table></div></div>';
 
-    var rows = d.dividen.filter(function (x) {
+    var rows = pool.filter(function (x) {
       return (!f.kode || x.kode === f.kode) && (!f.tahun || C.day(x.tanggal).slice(0, 4) === f.tahun);
     }).slice().sort(function (a, b) {
       var x = C.day(a.tanggal), y = C.day(b.tanggal);
       return x === y ? 0 : x < y ? 1 : -1;
     });
-    var sum = rows.reduce(function (a, r) { return a + C.num(r.jumlah); }, 0);
+    var sum = rows.reduce(function (a, r) { return a + C.num(r.jumlah) * m.rt(r.pasar); }, 0);
 
-    var kodeOpts = [['', 'Semua saham']].concat(knownKodes({ transaksi: [], dividen: d.dividen }).map(function (k) { return [k, k]; }));
-    var yearOpts = [['', 'Semua tahun']].concat(yearsOf(d.dividen).map(function (y) { return [y, y]; }));
+    var kodes = {};
+    pool.forEach(function (t) { kodes[t.kode] = 1; });
+    var kodeOpts = [['', 'Semua aset']].concat(Object.keys(kodes).sort().map(function (k) { return [k, k]; }));
+    var yearOpts = [['', 'Semua tahun']].concat(yearsOf(pool).map(function (y) { return [y, y]; }));
 
-    var log = '<section class="section"><div class="section-head"><h2>Riwayat dividen</h2></div><div class="filters">' +
-      selectField('fd-kode', 'Saham', f.kode, kodeOpts) + selectField('fd-tahun', 'Tahun', f.tahun, yearOpts) + '</div>';
+    var log = '<section class="section"><div class="section-head"><h2>Riwayat</h2></div><div class="filters">' +
+      selectField('fd-kode', 'Aset', f.kode, kodeOpts) + selectField('fd-tahun', 'Tahun', f.tahun, yearOpts) + '</div>';
     if (!rows.length) {
-      log += '<div class="panel empty"><p>Tidak ada dividen yang cocok dengan filter.</p></div>';
+      log += '<div class="panel empty"><p>Tidak ada catatan yang cocok dengan filter.</p></div>';
     } else {
-      log += '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Saham</th><th class="num">Lot</th><th class="num">Per lembar</th><th class="num">Pajak</th><th class="num">Diterima</th><th></th></tr></thead><tbody>' +
+      log += '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Aset</th><th class="num">Jumlah</th><th class="num">Per lembar / koin</th><th class="num">Pajak</th><th class="num">Diterima</th><th></th></tr></thead><tbody>' +
         rows.map(function (x) {
+          var xc = ccyOf(x.pasar);
           return '<tr><td>' + fmtDate(x.tanggal) + (x.catatan ? '<span class="sub muted" style="font-weight:500">' + esc(x.catatan) + '</span>' : '') + '</td>' +
-            '<td class="kode">' + esc(x.kode) + '</td>' +
-            '<td class="num">' + (x.lot !== '' && x.lot != null ? nf.format(x.lot) : '<span class="muted">–</span>') + '</td>' +
-            '<td class="num">' + (x.dps !== '' && x.dps != null ? px(x.dps) : '<span class="muted">–</span>') + '</td>' +
-            '<td class="num">' + (x.pajak !== '' && x.pajak != null ? nf2.format(x.pajak) + '%' : '<span class="muted">–</span>') + '</td>' +
-            '<td class="num gain">' + rp(x.jumlah) + '</td>' +
+            '<td class="kode">' + esc(x.kode) + (m.all ? pill(x.pasar, true) : '') + '</td>' +
+            '<td class="num">' + (C.qtyOf(x) > 0 ? qtyf(C.qtyOf(x), x.pasar) : '<span class="muted">–</span>') + '</td>' +
+            '<td class="num">' + (x.dps !== '' && x.dps != null ? pxf(x.dps, xc) : '<span class="muted">–</span>') + '</td>' +
+            '<td class="num">' + (x.pajak !== '' && x.pajak != null ? nfFor(0, 2).format(x.pajak) + '%' : '<span class="muted">–</span>') + '</td>' +
+            '<td class="num gain">' + money(x.jumlah, xc) + '</td>' +
             '<td class="acts"><button class="btn ghost sm" data-act="edit-div" data-id="' + esc(x.id) + '" type="button">Ubah</button>' +
             '<button class="btn danger sm" data-act="del-div" data-id="' + esc(x.id) + '" type="button">Hapus</button></td></tr>';
         }).join('') +
-        '</tbody><tfoot><tr><td colspan="5">' + rows.length + ' pembayaran</td><td class="num">' + rp(sum) + '</td><td></td></tr></tfoot></table></div>';
+        '</tbody><tfoot><tr><td colspan="5">' + rows.length + ' pembayaran' + (m.all ? ' (total dalam Rupiah)' : '') + '</td><td class="num">' + money(sum, ccy) + '</td><td></td></tr></tfoot></table></div>';
     }
     log += '</section>';
 
-    return '<section class="cols-2">' + summary + perKode + '</section>' + log;
+    return marketBanners(m) + '<section class="cols-2">' + summary + perKode + '</section>' + log;
   }
 
   // ---------- halaman: bulanan ----------
   function viewBulanan(m) {
-    var months = m.months;
-    if (!months.length) return emptyState('Belum ada data bulanan', 'Profit per bulan muncul setelah Anda mencatat penjualan atau dividen.', !S.isSheet());
+    var months = m.months, ccy = m.dispCcy;
+    if (!months.length) return marketBanners(m) + emptyState('Belum ada data bulanan', 'Profit per bulan muncul setelah Anda mencatat penjualan atau dividen.', !S.isSheet());
 
     var active = months.filter(function (x) { return x.trades || x.divCount; });
     var best = active.reduce(function (a, x) { return !a || x.total > a.total ? x : a; }, null);
@@ -332,32 +521,33 @@
     var totalDiv = months.reduce(function (a, x) { return a + x.dividend; }, 0);
     var plus = active.filter(function (x) { return x.total > 0; }).length;
     var minus = active.filter(function (x) { return x.total < 0; }).length;
+    var dvName = m.all ? 'Dividen / reward' : noun(m.sel);
 
-    var html = '<section class="hero hero-tight"><div class="hero-figure">' +
-      '<div class="lbl">Akumulasi profit jual + dividen</div>' +
-      '<div class="big ' + cls(totalReal + totalDiv) + '">' + rpSigned(totalReal + totalDiv) + '</div>' +
+    var html = marketBanners(m) + '<section class="hero hero-tight"><div class="hero-figure">' +
+      '<div class="lbl">Akumulasi profit jual + ' + dvName.toLowerCase() + (m.all ? ' (dalam Rupiah)' : '') + '</div>' +
+      '<div class="big ' + cls(totalReal + totalDiv, ccy) + '">' + moneySigned(totalReal + totalDiv, ccy) + '</div>' +
       '<dl class="leader">' +
-      lead('Bulan terbaik', best ? fmtMonth(best.month) + ' ' + rpSigned(best.total) : '–', { cls: best ? cls(best.total) : '' }) +
-      lead('Bulan terburuk', worst ? fmtMonth(worst.month) + ' ' + rpSigned(worst.total) : '–', { cls: worst ? cls(worst.total) : '' }) +
+      lead('Bulan terbaik', best ? fmtMonth(best.month) + ' ' + moneySigned(best.total, ccy) : '–', { cls: best ? cls(best.total, ccy) : '' }) +
+      lead('Bulan terburuk', worst ? fmtMonth(worst.month) + ' ' + moneySigned(worst.total, ccy) : '–', { cls: worst ? cls(worst.total, ccy) : '' }) +
       lead('Bulan untung / rugi', plus + ' / ' + minus) +
       '</dl>' +
-      '<p class="muted" style="font-size:13px;margin-top:14px">Profit bulanan memakai profit yang sudah terealisasi saat jual dan dividen yang diterima. Naik turun harga saham yang belum dijual tidak masuk di sini; lihat <a href="#/dashboard">Dashboard</a>.</p></div>' +
+      '<p class="muted" style="font-size:13px;margin-top:14px">Profit bulanan memakai profit yang sudah terealisasi saat jual dan ' + dvName.toLowerCase() + ' yang diterima. Naik turun harga aset yang belum dijual tidak masuk di sini; lihat <a href="#/dashboard">Dashboard</a>.</p></div>' +
       '<div class="chart-wrap"><div class="chart-head"><h2>Per bulan</h2>' +
-      '<div class="legend"><span><i style="background:var(--gain)"></i>Profit jual</span><span><i style="background:var(--loss)"></i>Rugi jual</span><span><i style="background:var(--dividend)"></i>Dividen</span></div></div>' +
-      '<div class="chart-scroll"><div class="chart">' + Charts.monthly(months, { label: 'Profit per bulan, seluruh periode' }) + '</div></div></div></section>';
+      '<div class="legend"><span><i style="background:var(--gain)"></i>Profit jual</span><span><i style="background:var(--loss)"></i>Rugi jual</span><span><i style="background:var(--dividend)"></i>' + dvName + '</span></div></div>' +
+      '<div class="chart-scroll"><div class="chart">' + Charts.monthly(months, { label: 'Profit per bulan, seluruh periode', fmt: function (n) { return money(n, ccy); } }) + '</div></div></div></section>';
 
     html += '<section class="section"><div class="section-head"><h2>Rincian</h2></div><div class="panel table-wrap"><table class="tbl"><thead><tr>' +
-      '<th>Bulan</th><th class="num">Transaksi</th><th class="num">Profit jual</th><th class="num">Dividen</th><th class="num">Total bulan</th><th class="num">Kumulatif</th></tr></thead><tbody>' +
+      '<th>Bulan</th><th class="num">Transaksi</th><th class="num">Profit jual</th><th class="num">' + dvName + '</th><th class="num">Total bulan</th><th class="num">Kumulatif</th></tr></thead><tbody>' +
       months.slice().reverse().map(function (x) {
         return '<tr><td class="kode">' + fmtMonth(x.month) + '</td><td class="num">' + (x.trades || '<span class="muted">–</span>') + '</td>' +
-          '<td class="num ' + cls(x.realized) + '">' + (x.realized ? rpSigned(x.realized) : '<span class="muted">–</span>') + '</td>' +
-          '<td class="num ' + (x.dividend ? 'gain' : '') + '">' + (x.dividend ? rpSigned(x.dividend) : '<span class="muted">–</span>') + '</td>' +
-          '<td class="num ' + cls(x.total) + '"><strong>' + (x.total ? rpSigned(x.total) : 'Rp 0') + '</strong></td>' +
-          '<td class="num ' + cls(x.cumulative) + '">' + rpSigned(x.cumulative) + '</td></tr>';
+          '<td class="num ' + cls(x.realized, ccy) + '">' + (sgn(x.realized, ccy) ? moneySigned(x.realized, ccy) : '<span class="muted">–</span>') + '</td>' +
+          '<td class="num ' + (x.dividend ? 'gain' : '') + '">' + (x.dividend ? moneySigned(x.dividend, ccy) : '<span class="muted">–</span>') + '</td>' +
+          '<td class="num ' + cls(x.total, ccy) + '"><strong>' + moneySigned(x.total, ccy) + '</strong></td>' +
+          '<td class="num ' + cls(x.cumulative, ccy) + '">' + moneySigned(x.cumulative, ccy) + '</td></tr>';
       }).join('') +
       '</tbody><tfoot><tr><td>Total</td><td class="num">' + months.reduce(function (a, x) { return a + x.trades; }, 0) + '</td>' +
-      '<td class="num ' + cls(totalReal) + '">' + rpSigned(totalReal) + '</td><td class="num">' + rpSigned(totalDiv) + '</td>' +
-      '<td class="num ' + cls(totalReal + totalDiv) + '">' + rpSigned(totalReal + totalDiv) + '</td><td></td></tr></tfoot></table></div></section>';
+      '<td class="num ' + cls(totalReal, ccy) + '">' + moneySigned(totalReal, ccy) + '</td><td class="num">' + moneySigned(totalDiv, ccy) + '</td>' +
+      '<td class="num ' + cls(totalReal + totalDiv, ccy) + '">' + moneySigned(totalReal + totalDiv, ccy) + '</td><td></td></tr></tfoot></table></div></section>';
     return html;
   }
 
@@ -366,25 +556,42 @@
     var st = S.settings, sheet = S.isSheet();
     var local = S.localData();
     var localCount = local.transaksi.length + local.dividen.length;
+    var fxLive = S.prices.fx > 0 ? S.prices.fx : 0;
 
     var html = '<div>';
 
-    html += '<section class="settings-block"><div><h2>Google Sheets</h2><p>Simpan semua transaksi dan dividen di spreadsheet Anda sendiri. Tanpa ini, data hanya ada di browser ini.</p></div><div>' +
-      '<div class="banner' + (sheet ? '' : '') + '" style="margin-bottom:16px">' + (sheet ? '<div><strong>Tersambung.</strong> Data dibaca dan ditulis ke spreadsheet Anda.</div>' : '<div><strong>Belum tersambung.</strong> Ikuti langkah Apps Script di README, lalu tempel URL dan token di sini.</div>') + '</div>' +
+    html += '<section class="settings-block"><div><h2>Google Sheets</h2><p>Simpan semua transaksi dan dividen di spreadsheet Anda sendiri, satu tab per pasar. Tanpa ini, data hanya ada di browser ini.</p></div><div>' +
+      '<div class="banner" style="margin-bottom:16px">' + (sheet ? '<div><strong>Tersambung.</strong> Data dibaca dan ditulis ke spreadsheet Anda.</div>' : '<div><strong>Belum tersambung.</strong> Ikuti langkah Apps Script di README, lalu tempel URL dan token di sini.</div>') + '</div>' +
       '<form id="form-conn" class="form-grid" autocomplete="off">' +
       '<div class="field wide"><label for="s-url">URL Web App</label><input id="s-url" name="url" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(st.url) + '"></div>' +
-      '<div class="field wide"><label for="s-token">Token</label><input id="s-token" name="token" type="password" autocomplete="off" value="' + esc(st.token) + '"><span class="hint">Sama persis dengan TOKEN di Code.gs. Disimpan hanya di browser ini.</span></div>' +
+      '<div class="field wide"><label for="s-token">Token (TOKEN)</label><input id="s-token" name="token" type="password" autocomplete="off" value="' + esc(st.token) + '"><span class="hint">Sama persis dengan TOKEN di Code.gs. Disimpan hanya di browser ini. Jangan isi dengan CHAT_TOKEN.</span></div>' +
       '<div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" type="submit">' + (sheet ? 'Simpan dan muat ulang' : 'Sambungkan') + '</button>' +
       (sheet ? '<button class="btn outline" type="button" data-act="reload">Muat ulang dari Sheet</button><button class="btn danger" type="button" data-act="disconnect">Putuskan</button>' : '') +
       '</div></form>' +
-      (sheet && localCount ? '<div class="row"><button class="btn outline" type="button" data-act="upload-local">Unggah ' + local.transaksi.length + ' transaksi dan ' + local.dividen.length + ' dividen dari browser ini ke Sheet</button></div><p class="muted" style="margin-top:8px;font-size:13px">Ini mengganti seluruh isi tab Transaksi dan Dividen di Sheet.</p>' : '') +
+      (sheet && localCount ? '<div class="row"><button class="btn outline" type="button" data-act="upload-local">Unggah ' + local.transaksi.length + ' transaksi dan ' + local.dividen.length + ' dividen dari browser ini ke Sheet</button></div><p class="muted" style="margin-top:8px;font-size:13px">Ini mengganti seluruh isi tab transaksi dan dividen di Sheet.</p>' : '') +
       '</div></section>';
+
+    html += '<section class="settings-block"><div><h2>Catat lewat chat</h2><p>Tulis transaksi langsung ke Claude, misalnya “beli BBCA 10 lot harga 9000” atau “dividen TLKM 360000”.</p></div><div>' +
+      '<p style="color:var(--ink)">Claude mengirimnya ke Google Sheets Anda memakai <code>CHAT_TOKEN</code>, token terpisah yang hanya bisa menambah catatan dan membaca posisi. Tidak bisa mengubah atau menghapus data. Setelah mencatat, klik <strong>Muat ulang dari Sheet</strong> di sini untuk melihat hasilnya.</p>' +
+      '<p style="margin-top:10px">Pasang <code>CHAT_TOKEN</code> di Code.gs (langkah ada di README). Token ini tidak pernah disimpan di aplikasi ini.</p></div></section>';
 
     html += '<section class="settings-block"><div><h2>Biaya broker</h2><p>Dipakai untuk mengisi fee otomatis saat mencatat transaksi. Fee tetap bisa diubah per transaksi.</p></div><div>' +
       '<form id="form-fee" class="form-grid">' +
-      '<div class="field"><label for="s-fb">Fee beli (%)</label><input id="s-fb" name="feeBeli" type="number" step="0.001" min="0" value="' + esc(st.feeBeli) + '"></div>' +
-      '<div class="field"><label for="s-fj">Fee jual (%)</label><input id="s-fj" name="feeJual" type="number" step="0.001" min="0" value="' + esc(st.feeJual) + '"><span class="hint">Biasanya sudah termasuk pajak penjualan 0,1%.</span></div>' +
+      ORDER.map(function (mk) {
+        return '<div class="field wide" style="margin-bottom:-4px"><span class="lbl">' + esc(MK[mk].label) + '</span></div>' +
+          '<div class="field"><label for="fee-' + mk + '-b">Fee beli (%)</label><input id="fee-' + mk + '-b" name="fee_' + mk + '_beli" type="number" step="0.001" min="0" max="5" value="' + esc(st.fee[mk].beli) + '"></div>' +
+          '<div class="field"><label for="fee-' + mk + '-j">Fee jual (%)</label><input id="fee-' + mk + '-j" name="fee_' + mk + '_jual" type="number" step="0.001" min="0" max="5" value="' + esc(st.fee[mk].jual) + '">' +
+          (mk === 'ID' ? '<span class="hint">Biasanya sudah termasuk pajak penjualan 0,1%.</span>' : '') + '</div>';
+      }).join('') +
       '<div class="wide"><button class="btn primary" type="submit">Simpan biaya</button></div></form></div></section>';
+
+    html += '<section class="settings-block"><div><h2>Mata uang dan kurs</h2><p>Saham Indonesia dicatat dalam Rupiah, saham US dalam dolar. Tampilan Semua menggabungkan semuanya dalam Rupiah.</p></div><div>' +
+      '<form id="form-ccy" class="form-grid">' +
+      '<div class="field"><label for="s-ccy">Crypto dicatat dalam</label><select id="s-ccy" name="cryptoCcy"><option value="IDR"' + (st.cryptoCcy === 'IDR' ? ' selected' : '') + '>Rupiah (Rp)</option><option value="USD"' + (st.cryptoCcy === 'USD' ? ' selected' : '') + '>Dolar (US$)</option></select>' +
+      '<span class="hint">Ganti ini sebelum mencatat. Catatan lama tidak dikonversi.</span></div>' +
+      '<div class="field"><label for="s-kurs">Kurs cadangan (Rp per US$)</label><input id="s-kurs" name="kurs" type="number" min="0" step="any" value="' + (st.kurs > 0 ? esc(st.kurs) : '') + '"><span class="hint">' +
+      (fxLive ? 'Kurs otomatis saat ini ' + idr(fxLive) + ' dan dipakai lebih dulu.' : 'Dipakai bila kurs otomatis belum tersedia.') + '</span></div>' +
+      '<div class="wide"><button class="btn primary" type="submit">Simpan</button></div></form></div></section>';
 
     html += '<section class="settings-block"><div><h2>Data</h2><p>Cadangkan atau pindahkan data. Cadangan JSON bisa diimpor kembali.</p></div><div>' +
       '<div class="row" style="margin-top:0"><button class="btn outline" data-act="export-json" type="button">Ekspor cadangan (JSON)</button>' +
@@ -408,6 +615,16 @@
     $('#tabbar').innerHTML = navHtml;
   }
 
+  function renderMarkets(route) {
+    var el = $('#markets');
+    el.hidden = !route.markets;
+    if (!route.markets) return;
+    var sel = selMarket();
+    el.innerHTML = [['ALL', 'Semua']].concat(ORDER.map(function (mk) { return [mk, MK[mk].label]; })).map(function (o) {
+      return '<button type="button" data-act="market" data-m="' + o[0] + '" aria-pressed="' + (o[0] === sel) + '">' + esc(o[1]) + '</button>';
+    }).join('');
+  }
+
   function renderSync() {
     var el = $('#sync');
     if (S.isSheet()) {
@@ -429,8 +646,11 @@
     $('#page-title').textContent = route.label;
     document.title = route.label + ' · Porto';
     renderNav();
+    renderMarkets(route);
     $('#view').innerHTML = VIEWS[route.id](compute());
     renderSync();
+    var sel = selMarket();
+    $('#btn-add-div').textContent = sel === 'CRYPTO' ? 'Catat reward' : 'Catat dividen';
     if (state.focusId) {
       var f = document.getElementById(state.focusId);
       if (f) f.focus();
@@ -444,6 +664,12 @@
     el.textContent = msg;
     $('#toasts').appendChild(el);
     setTimeout(function () { el.remove(); }, kind === 'err' ? 6000 : 3200);
+  }
+
+  function setMarket(mk) {
+    S.saveSettings({ market: mk });
+    state.f = { trx: { kode: '', jenis: '', tahun: '' }, div: { kode: '', tahun: '' } };
+    render();
   }
 
   // ---------- dialog ----------
@@ -488,145 +714,215 @@
     });
   }
 
+  function marketSeg(current) {
+    return '<div class="field wide"><span class="lbl">Pasar</span><div class="seg" role="radiogroup" aria-label="Pasar">' +
+      ORDER.map(function (mk) {
+        return '<label><input type="radio" name="pasar" value="' + mk + '"' + (current === mk ? ' checked' : '') + '><span>' + esc(MK[mk].short) + '</span></label>';
+      }).join('') + '</div></div>';
+  }
+
+  function ccyInfo(mk) {
+    var ccy = ccyOf(mk);
+    return { ccy: ccy, sym: ccy === 'USD' ? 'US$' : 'Rp', dec: ccy === 'USD' ? 2 : 0, unit: mk === 'CRYPTO' ? 'koin' : 'lembar' };
+  }
+
+  function defaultMarket() { var s = selMarket(); return s === 'ALL' ? 'ID' : s; }
+
   // ---------- form transaksi ----------
-  function trxFormHtml(t, kodes) {
+  function trxFormHtml(t) {
     return '<form id="dlg-form" class="form-grid" autocomplete="off">' +
+      marketSeg(t.pasar) +
       '<div class="field"><label for="f-tanggal">Tanggal</label><input id="f-tanggal" name="tanggal" type="date" required value="' + esc(t.tanggal) + '"></div>' +
-      '<div class="field"><label for="f-kode">Kode saham</label><input id="f-kode" name="kode" class="up" list="kodes" required maxlength="6" placeholder="BBCA" value="' + esc(t.kode) + '"><datalist id="kodes">' + kodes.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('') + '</datalist></div>' +
+      '<div class="field"><label for="f-kode">Kode</label><input id="f-kode" name="kode" class="up" list="kodes" required maxlength="10" value="' + esc(t.kode) + '"><datalist id="kodes"></datalist></div>' +
       '<div class="field wide"><span class="lbl">Jenis</span><div class="seg" role="radiogroup" aria-label="Jenis transaksi"><label><input type="radio" name="jenis" value="BELI"' + (t.jenis === 'BELI' ? ' checked' : '') + '><span>Beli</span></label><label><input type="radio" name="jenis" value="JUAL"' + (t.jenis === 'JUAL' ? ' checked' : '') + '><span>Jual</span></label></div></div>' +
-      '<div class="field"><label for="f-lot">Jumlah (lot)</label><input id="f-lot" name="lot" type="number" min="1" step="1" inputmode="numeric" required value="' + esc(t.lot) + '"><span class="hint">1 lot = 100 lembar</span></div>' +
-      '<div class="field"><label for="f-harga">Harga per lembar (Rp)</label><input id="f-harga" name="harga" type="number" min="0" step="any" inputmode="decimal" required value="' + esc(t.harga) + '"></div>' +
-      '<div class="field"><label for="f-fee">Fee (Rp)</label><input id="f-fee" name="fee" type="number" min="0" step="any" inputmode="decimal" value="' + esc(t.fee) + '"><span class="hint" id="f-fee-hint"></span></div>' +
+      '<div class="field"><label for="f-qty" id="f-lbl-qty">Jumlah</label><input id="f-qty" name="qty" type="number" min="0" step="any" inputmode="decimal" required value="' + esc(t.qty) + '"><span class="hint" id="f-hint-qty"></span></div>' +
+      '<div class="field"><label for="f-harga" id="f-lbl-harga">Harga</label><input id="f-harga" name="harga" type="number" min="0" step="any" inputmode="decimal" required value="' + esc(t.harga) + '"></div>' +
+      '<div class="field"><label for="f-fee" id="f-lbl-fee">Fee</label><input id="f-fee" name="fee" type="number" min="0" step="any" inputmode="decimal" value="' + esc(t.fee) + '"><span class="hint" id="f-fee-hint"></span></div>' +
       '<div class="field"><label for="f-cat">Catatan</label><input id="f-cat" name="catatan" maxlength="120" value="' + esc(t.catatan) + '"></div>' +
       '<div class="wide form-total" id="f-total"></div></form>';
   }
 
   function wireTrxForm() {
     var form = $('#dlg-form');
-    function read() {
-      var fd = new FormData(form);
-      return { jenis: fd.get('jenis'), lot: C.num(fd.get('lot')), harga: C.num(fd.get('harga')), fee: fd.get('fee') };
-    }
     function update() {
-      var v = read();
-      var est = C.estimateFee(v.jenis, v.lot, v.harga, S.settings.feeBeli, S.settings.feeJual);
-      var fee = v.fee === '' ? est : C.num(v.fee);
-      var gross = Math.round(v.lot) * C.LOT * v.harga;
-      var pctUsed = v.jenis === 'JUAL' ? S.settings.feeJual : S.settings.feeBeli;
-      $('#f-fee-hint').textContent = 'Kosongkan untuk otomatis: ' + rp(est) + ' (' + String(pctUsed).replace('.', ',') + '%)';
-      $('#f-total').innerHTML = '<span>Nilai ' + rp(gross) + ' · Fee ' + rp(fee) + '</span><strong>' +
-        (v.jenis === 'JUAL' ? 'Diterima ' + rp(gross - fee) : 'Dibayar ' + rp(gross + fee)) + '</strong>';
+      var fd = new FormData(form);
+      var mk = fd.get('pasar'), M = MK[mk], ci = ccyInfo(mk);
+      var jenis = fd.get('jenis');
+      var qty = C.num(fd.get('qty')), harga = C.num(fd.get('harga')), feeRaw = fd.get('fee');
+      $('#f-lbl-qty').textContent = M.qtyLabel;
+      $('#f-hint-qty').textContent = M.qtyHint;
+      var q = $('#f-qty');
+      q.step = M.integerQty ? '1' : 'any';
+      q.min = M.integerQty ? '1' : '0';
+      $('#f-lbl-harga').textContent = 'Harga per ' + ci.unit + ' (' + ci.sym + ')';
+      $('#f-lbl-fee').textContent = 'Fee (' + ci.sym + ')';
+      $('#f-kode').placeholder = M.kodeHint;
+      var dl = $('#kodes');
+      var wanted = knownKodes(mk).join('|');
+      if (dl.dataset.k !== mk + wanted) {
+        dl.dataset.k = mk + wanted;
+        dl.innerHTML = knownKodes(mk).map(function (k) { return '<option value="' + esc(k) + '">'; }).join('');
+      }
+      var fee = S.settings.fee[mk];
+      var est = C.estimateFee(jenis, qty, harga, fee.beli, fee.jual, M.mult, ci.dec);
+      var used = feeRaw === '' ? est : C.num(feeRaw);
+      var gross = (M.integerQty ? Math.round(qty) : qty) * M.mult * harga;
+      $('#f-fee-hint').textContent = 'Kosongkan untuk otomatis: ' + money(est, ci.ccy) + ' (' + String(jenis === 'JUAL' ? fee.jual : fee.beli).replace('.', ',') + '%)';
+      $('#f-total').innerHTML = '<span>Nilai ' + money(gross, ci.ccy) + ' · Fee ' + money(used, ci.ccy) + '</span><strong>' +
+        (jenis === 'JUAL' ? 'Diterima ' + money(gross - used, ci.ccy) : 'Dibayar ' + money(gross + used, ci.ccy)) + '</strong>';
     }
     form.addEventListener('input', update);
+    form.addEventListener('change', update);
     update();
   }
 
   function openTrxForm(id) {
     var d = S.data;
     var t = id ? d.transaksi.filter(function (x) { return x.id === id; })[0] : null;
-    var model = t ? Object.assign({}, t) : { id: '', tanggal: ymd(new Date()), kode: '', jenis: 'BELI', lot: '', harga: '', fee: '', catatan: '' };
+    var model = t ? Object.assign({}, t) : { id: '', pasar: defaultMarket(), tanggal: ymd(new Date()), kode: '', jenis: 'BELI', qty: '', harga: '', fee: '', catatan: '' };
     openDialog({
       title: t ? 'Ubah transaksi' : 'Catat transaksi',
-      body: trxFormHtml(model, knownKodes(d)),
+      body: trxFormHtml(model),
       ok: 'Simpan transaksi',
       onOpen: function () { setTimeout(wireTrxForm, 0); },
       onSubmit: function () {
         var fd = new FormData($('#dlg-form'));
+        var mk = fd.get('pasar'), M = MK[mk], ci = ccyInfo(mk);
         var row = {
-          id: model.id,
+          id: model.id, pasar: mk,
           tanggal: fd.get('tanggal'),
           kode: C.upper(fd.get('kode')),
           jenis: fd.get('jenis'),
-          lot: C.num(fd.get('lot')),
+          qty: C.num(fd.get('qty')),
           harga: C.num(fd.get('harga')),
           fee: fd.get('fee'),
           catatan: String(fd.get('catatan') || '').trim()
         };
-        if (!/^[A-Z0-9]{2,6}$/.test(row.kode)) return Promise.reject(new Error('Kode saham harus 2 sampai 6 huruf atau angka, misalnya BBCA.'));
+        if (!M.kodeRe.test(row.kode)) return Promise.reject(new Error(M.kodeMsg));
         if (!row.tanggal) return Promise.reject(new Error('Isi tanggal transaksi.'));
-        if (!(row.lot >= 1) || Math.round(row.lot) !== row.lot) return Promise.reject(new Error('Jumlah lot harus bilangan bulat, minimal 1.'));
-        if (!(row.harga > 0)) return Promise.reject(new Error('Harga per lembar harus lebih dari 0.'));
-        row.fee = row.fee === '' ? C.estimateFee(row.jenis, row.lot, row.harga, S.settings.feeBeli, S.settings.feeJual) : C.num(row.fee);
+        if (!(row.qty > 0)) return Promise.reject(new Error('Jumlah harus lebih dari 0.'));
+        if (M.integerQty && Math.round(row.qty) !== row.qty) return Promise.reject(new Error('Jumlah lot harus bilangan bulat, minimal 1.'));
+        if (!(row.harga > 0)) return Promise.reject(new Error('Harga harus lebih dari 0.'));
+        var fee = S.settings.fee[mk];
+        row.fee = row.fee === '' ? C.estimateFee(row.jenis, row.qty, row.harga, fee.beli, fee.jual, M.mult, ci.dec) : C.num(row.fee);
+        if (row.fee < 0) return Promise.reject(new Error('Fee tidak boleh negatif.'));
 
-        // cek kepemilikan sebelum menyimpan
         var others = d.transaksi.filter(function (x) { return x.id !== model.id; });
-        var prev = C.buildLedger(others).warnings.map(function (w) { return w.id; });
         var cand = Object.assign({}, row, { id: model.id || '__baru__' });
-        var after = C.buildLedger(others.concat([cand])).warnings;
-        var bad = after.filter(function (w) { return prev.indexOf(w.id) < 0; })[0];
+        var bad = newWarning(d.transaksi, others.concat([cand]));
         if (bad) return Promise.reject(new Error(bad.message + (bad.id === cand.id ? '.' : ' pada ' + fmtDate(bad.tanggal) + '. Perubahan ini membuat penjualan tersebut tidak valid.')));
 
         var p = model.id ? S.update('transaksi', row) : S.add('transaksi', row);
-        return p.then(function () { toast(model.id ? 'Transaksi diperbarui' : 'Transaksi disimpan'); render(); });
+        return p.then(function () {
+          // tampilkan pasar yang baru saja diisi agar hasilnya langsung terlihat
+          if (selMarket() !== 'ALL' && selMarket() !== mk) S.saveSettings({ market: mk });
+          toast(model.id ? 'Transaksi diperbarui' : 'Transaksi disimpan');
+          render();
+        });
       }
     });
   }
 
   // ---------- form dividen ----------
+  var DEFAULT_TAX = { ID: 10, US: 0, CRYPTO: 0 };
+
   function openDivForm(id) {
     var d = S.data;
     var x = id ? d.dividen.filter(function (r) { return r.id === id; })[0] : null;
-    var model = x ? Object.assign({}, x) : { id: '', tanggal: ymd(new Date()), kode: '', lot: '', dps: '', pajak: 10, jumlah: '', catatan: '' };
-    var kodes = knownKodes(d);
+    var dm = defaultMarket();
+    var model = x ? Object.assign({}, x) : { id: '', pasar: dm, tanggal: ymd(new Date()), kode: '', qty: '', dps: '', pajak: DEFAULT_TAX[dm], jumlah: '', catatan: '' };
     var touched = !!x;
+    var taxTouched = !!x;
 
     openDialog({
-      title: x ? 'Ubah dividen' : 'Catat dividen',
+      title: x ? 'Ubah catatan ' + nounLower(model.pasar) : (dm === 'CRYPTO' ? 'Catat reward' : 'Catat dividen'),
       body: '<form id="dlg-form" class="form-grid" autocomplete="off">' +
+        marketSeg(model.pasar) +
         '<div class="field"><label for="d-tanggal">Tanggal diterima</label><input id="d-tanggal" name="tanggal" type="date" required value="' + esc(model.tanggal) + '"></div>' +
-        '<div class="field"><label for="d-kode">Kode saham</label><input id="d-kode" name="kode" class="up" list="kodes2" required maxlength="6" placeholder="BBCA" value="' + esc(model.kode) + '"><datalist id="kodes2">' + kodes.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('') + '</datalist></div>' +
-        '<div class="field"><label for="d-lot">Jumlah lot (opsional)</label><input id="d-lot" name="lot" type="number" min="0" step="1" inputmode="numeric" value="' + esc(model.lot) + '"></div>' +
-        '<div class="field"><label for="d-dps">Dividen per lembar (opsional)</label><input id="d-dps" name="dps" type="number" min="0" step="any" inputmode="decimal" value="' + esc(model.dps) + '"></div>' +
-        '<div class="field"><label for="d-pajak">Pajak (%)</label><input id="d-pajak" name="pajak" type="number" min="0" max="100" step="any" inputmode="decimal" value="' + esc(model.pajak) + '"></div>' +
-        '<div class="field"><label for="d-jumlah">Total diterima (Rp)</label><input id="d-jumlah" name="jumlah" type="number" min="0" step="any" inputmode="decimal" required value="' + esc(model.jumlah) + '"><span class="hint" id="d-hint">Terisi otomatis dari lot × dividen per lembar setelah pajak. Boleh diubah.</span></div>' +
+        '<div class="field"><label for="d-kode">Kode</label><input id="d-kode" name="kode" class="up" list="kodes2" required maxlength="10" value="' + esc(model.kode) + '"><datalist id="kodes2"></datalist></div>' +
+        '<div class="field"><label for="d-qty" id="d-lbl-qty">Jumlah (opsional)</label><input id="d-qty" name="qty" type="number" min="0" step="any" inputmode="decimal" value="' + esc(model.qty) + '"></div>' +
+        '<div class="field"><label for="d-dps" id="d-lbl-dps">Per lembar (opsional)</label><input id="d-dps" name="dps" type="number" min="0" step="any" inputmode="decimal" value="' + esc(model.dps) + '"></div>' +
+        '<div class="field"><label for="d-pajak">Pajak (%)</label><input id="d-pajak" name="pajak" type="number" min="0" max="100" step="any" inputmode="decimal" value="' + esc(model.pajak) + '"><span class="hint" id="d-pajak-hint"></span></div>' +
+        '<div class="field"><label for="d-jumlah" id="d-lbl-jumlah">Total diterima</label><input id="d-jumlah" name="jumlah" type="number" min="0" step="any" inputmode="decimal" required value="' + esc(model.jumlah) + '"><span class="hint">Terisi otomatis dari jumlah × per lembar setelah pajak. Boleh diubah.</span></div>' +
         '<div class="field wide"><label for="d-cat">Catatan</label><input id="d-cat" name="catatan" maxlength="120" value="' + esc(model.catatan) + '"></div></form>',
-      ok: 'Simpan dividen',
+      ok: 'Simpan',
       onOpen: function () {
         setTimeout(function () {
           var form = $('#dlg-form');
           var jumlah = $('#d-jumlah');
+          function mkNow() { return new FormData(form).get('pasar'); }
+          function labels() {
+            var mk = mkNow(), M = MK[mk], ci = ccyInfo(mk);
+            $('#d-lbl-qty').textContent = 'Jumlah ' + M.unit + ' (opsional)';
+            $('#d-lbl-dps').textContent = (mk === 'CRYPTO' ? 'Reward per koin' : 'Dividen per lembar') + ' (' + ci.sym + ', opsional)';
+            $('#d-lbl-jumlah').textContent = 'Total diterima (' + ci.sym + ')';
+            $('#d-kode').placeholder = M.kodeHint;
+            $('#d-pajak-hint').textContent = mk === 'ID' ? 'Dividen saham Indonesia umumnya dipotong 10%.' : 'Isi sesuai potongan di broker atau platform Anda.';
+            var dl = $('#kodes2');
+            dl.innerHTML = knownKodes(mk).map(function (k) { return '<option value="' + esc(k) + '">'; }).join('');
+          }
           function auto() {
             if (touched) return;
-            var lot = C.num($('#d-lot').value), dps = C.num($('#d-dps').value), tax = C.num($('#d-pajak').value);
-            if (lot > 0 && dps > 0) jumlah.value = Math.round(lot * C.LOT * dps * (1 - tax / 100));
+            var mk = mkNow(), M = MK[mk], ci = ccyInfo(mk);
+            var qty = C.num($('#d-qty').value), dps = C.num($('#d-dps').value), tax = C.num($('#d-pajak').value);
+            if (qty > 0 && dps > 0) {
+              var f = Math.pow(10, ci.dec);
+              jumlah.value = Math.round(qty * M.mult * dps * (1 - tax / 100) * f) / f;
+            }
           }
           jumlah.addEventListener('input', function () { touched = true; });
+          $('#d-pajak').addEventListener('input', function () { taxTouched = true; });
+          form.addEventListener('change', function (e) {
+            if (e.target.name === 'pasar') {
+              if (!taxTouched) $('#d-pajak').value = DEFAULT_TAX[mkNow()];
+              labels();
+              auto();
+            }
+          });
           form.addEventListener('input', function (e) { if (e.target !== jumlah) auto(); });
+          labels();
         }, 0);
       },
       onSubmit: function () {
         var fd = new FormData($('#dlg-form'));
+        var mk = fd.get('pasar'), M = MK[mk];
         var row = {
-          id: model.id,
+          id: model.id, pasar: mk,
           tanggal: fd.get('tanggal'),
           kode: C.upper(fd.get('kode')),
-          lot: fd.get('lot') === '' ? '' : C.num(fd.get('lot')),
+          qty: fd.get('qty') === '' ? '' : C.num(fd.get('qty')),
           dps: fd.get('dps') === '' ? '' : C.num(fd.get('dps')),
           pajak: fd.get('pajak') === '' ? '' : C.num(fd.get('pajak')),
           jumlah: C.num(fd.get('jumlah')),
           catatan: String(fd.get('catatan') || '').trim()
         };
-        if (!/^[A-Z0-9]{2,6}$/.test(row.kode)) return Promise.reject(new Error('Kode saham harus 2 sampai 6 huruf atau angka, misalnya BBCA.'));
-        if (!row.tanggal) return Promise.reject(new Error('Isi tanggal dividen diterima.'));
+        if (!M.kodeRe.test(row.kode)) return Promise.reject(new Error(M.kodeMsg));
+        if (!row.tanggal) return Promise.reject(new Error('Isi tanggal diterima.'));
         if (!(row.jumlah > 0)) return Promise.reject(new Error('Total diterima harus lebih dari 0.'));
         var p = model.id ? S.update('dividen', row) : S.add('dividen', row);
-        return p.then(function () { toast(model.id ? 'Dividen diperbarui' : 'Dividen disimpan'); render(); });
+        return p.then(function () {
+          if (selMarket() !== 'ALL' && selMarket() !== mk) S.saveSettings({ market: mk });
+          toast(model.id ? 'Catatan diperbarui' : 'Catatan disimpan');
+          render();
+        });
       }
     });
   }
 
-  function openPriceForm(kode) {
-    var cur = S.manual[kode] || '';
+  function openPriceForm(key) {
+    var parts = key.split(':'), mk = parts[0], kode = parts[1];
+    var ci = ccyInfo(mk);
+    var cur = S.manual[key] || '';
     openDialog({
       title: 'Harga ' + kode,
-      body: '<form id="dlg-form"><div class="field"><label for="p-harga">Harga per lembar (Rp)</label><input id="p-harga" type="number" min="0" step="any" inputmode="decimal" value="' + esc(cur) + '" required>' +
+      body: '<form id="dlg-form"><div class="field"><label for="p-harga">Harga per ' + ci.unit + ' (' + ci.sym + ')</label><input id="p-harga" type="number" min="0" step="any" inputmode="decimal" value="' + esc(cur) + '" required>' +
         '<span class="hint">Dipakai bila harga otomatis tidak tersedia. Harga otomatis selalu didahulukan.</span></div></form>',
       ok: 'Simpan harga',
-      extra: cur ? '<button class="btn danger" type="button" data-dlg="clear-price" data-kode="' + esc(kode) + '">Hapus harga</button>' : '',
+      extra: cur ? '<button class="btn danger" type="button" data-dlg="clear-price" data-key="' + esc(key) + '">Hapus harga</button>' : '',
       onSubmit: function () {
         var v = C.num($('#p-harga').value);
         if (!(v > 0)) return Promise.reject(new Error('Harga harus lebih dari 0.'));
-        S.setManual(kode, v);
+        S.setManual(key, v);
         render();
         return Promise.resolve();
       }
@@ -634,23 +930,23 @@
   }
 
   // ---------- harga ----------
-  function openKodes() {
-    return C.buildLedger(S.data.transaksi).open.map(function (p) { return p.kode; });
+  function openKeys() {
+    var keys = [];
+    ORDER.forEach(function (mk) {
+      var trx = S.data.transaksi.filter(function (t) { return t.pasar === mk; });
+      C.buildLedger(trx, MK[mk].mult).open.forEach(function (p) { keys.push(mk + ':' + p.kode); });
+    });
+    return keys;
   }
 
   function refreshPrices(manualClick) {
-    var kodes = openKodes();
     if (!S.isSheet()) {
       if (manualClick) toast('Harga otomatis butuh koneksi ke Google Sheets. Buka Pengaturan.', 'err');
       return Promise.resolve();
     }
-    if (!kodes.length) {
-      if (manualClick) toast('Belum ada saham yang dipegang.');
-      return Promise.resolve();
-    }
     state.refreshing = true;
     renderSync();
-    return S.fetchPrices(kodes).then(function () {
+    return S.fetchPrices(openKeys()).then(function () {
       if (manualClick) toast('Harga diperbarui');
     }).catch(function (e) {
       toast('Gagal memperbarui harga: ' + e.message, 'err');
@@ -690,26 +986,33 @@
       var d = new Date(now.getFullYear(), now.getMonth() - back, day);
       return d > now ? null : ymd(d);
     }
-    function trx(back, day, kode, jenis, lot, harga) {
+    function trx(mk, back, day, kode, jenis, qty, harga) {
       var t = at(back, day);
       if (!t) return null;
-      return { tanggal: t, kode: kode, jenis: jenis, lot: lot, harga: harga,
-        fee: C.estimateFee(jenis, lot, harga, S.settings.feeBeli, S.settings.feeJual), catatan: 'Contoh' };
+      var ci = ccyInfo(mk), fee = S.settings.fee[mk];
+      return { pasar: mk, tanggal: t, kode: kode, jenis: jenis, qty: qty, harga: harga,
+        fee: C.estimateFee(jenis, qty, harga, fee.beli, fee.jual, MK[mk].mult, ci.dec), catatan: 'Contoh' };
     }
-    function div(back, day, kode, jumlah) {
+    function div(mk, back, day, kode, jumlah) {
       var t = at(back, day);
-      return t ? { tanggal: t, kode: kode, lot: '', dps: '', pajak: 10, jumlah: jumlah, catatan: 'Contoh' } : null;
+      return t ? { pasar: mk, tanggal: t, kode: kode, qty: '', dps: '', pajak: DEFAULT_TAX[mk], jumlah: jumlah, catatan: 'Contoh' } : null;
     }
+    var idrCrypto = ccyOf('CRYPTO') === 'IDR';
+    var btcBuy = idrCrypto ? 1450000000 : 88000, btcSell = idrCrypto ? 1620000000 : 98000, ethBuy = idrCrypto ? 48000000 : 2900;
     return {
       transaksi: [
-        trx(8, 10, 'BBCA', 'BELI', 10, 9000), trx(7, 15, 'TLKM', 'BELI', 20, 3100),
-        trx(6, 8, 'BMRI', 'BELI', 15, 5800), trx(5, 12, 'TLKM', 'JUAL', 5, 3350),
-        trx(4, 3, 'ASII', 'BELI', 20, 5000), trx(3, 18, 'BMRI', 'JUAL', 5, 5500),
-        trx(2, 9, 'ANTM', 'BELI', 30, 1650), trx(1, 14, 'ASII', 'JUAL', 10, 5350),
-        trx(0, 2, 'BBCA', 'BELI', 5, 9350)
+        trx('ID', 8, 10, 'BBCA', 'BELI', 10, 9000), trx('ID', 7, 15, 'TLKM', 'BELI', 20, 3100),
+        trx('ID', 6, 8, 'BMRI', 'BELI', 15, 5800), trx('ID', 5, 12, 'TLKM', 'JUAL', 5, 3350),
+        trx('ID', 4, 3, 'ASII', 'BELI', 20, 5000), trx('ID', 3, 18, 'BMRI', 'JUAL', 5, 5500),
+        trx('ID', 1, 14, 'ASII', 'JUAL', 10, 5350),
+        trx('US', 6, 9, 'AAPL', 'BELI', 3, 195), trx('US', 5, 20, 'MSFT', 'BELI', 1.5, 410),
+        trx('US', 2, 11, 'AAPL', 'JUAL', 1, 228),
+        trx('CRYPTO', 5, 6, 'BTC', 'BELI', 0.02, btcBuy), trx('CRYPTO', 4, 17, 'ETH', 'BELI', 0.3, ethBuy),
+        trx('CRYPTO', 1, 22, 'BTC', 'JUAL', 0.005, btcSell)
       ].filter(Boolean),
       dividen: [
-        div(5, 20, 'BBCA', 450000), div(2, 22, 'TLKM', 360000), div(1, 25, 'ASII', 270000)
+        div('ID', 5, 20, 'BBCA', 450000), div('ID', 2, 22, 'TLKM', 360000), div('ID', 1, 25, 'ASII', 270000),
+        div('US', 3, 14, 'AAPL', 2.1)
       ].filter(Boolean)
     };
   }
@@ -741,12 +1044,13 @@
     'add-div': function () { openDivForm(); },
     'edit-trx': function (b) { openTrxForm(b.dataset.id); },
     'edit-div': function (b) { openDivForm(b.dataset.id); },
+    'market': function (b) { setMarket(b.dataset.m); },
     'del-trx': function (b) {
       var t = S.data.transaksi.filter(function (x) { return x.id === b.dataset.id; })[0];
       if (!t) return;
       var rest = S.data.transaksi.filter(function (x) { return x.id !== t.id; });
-      var broken = C.buildLedger(rest).warnings.length > C.buildLedger(S.data.transaksi).warnings.length;
-      confirmDialog('Hapus transaksi?', esc(fmtDate(t.tanggal) + ' · ' + (t.jenis === 'BELI' ? 'Beli ' : 'Jual ') + t.kode + ' ' + t.lot + ' lot @ ' + px(t.harga)) +
+      var broken = !!newWarning(S.data.transaksi, rest);
+      confirmDialog('Hapus transaksi?', esc(fmtDate(t.tanggal) + ' · ' + (t.jenis === 'BELI' ? 'Beli ' : 'Jual ') + t.kode + ' ' + qtyf(C.qtyOf(t), t.pasar) + ' @ ' + pxf(C.num(t.harga), ccyOf(t.pasar))) +
         '.' + (broken ? ' <strong>Menghapus ini membuat penjualan lain melebihi kepemilikan.</strong>' : '') + ' Tindakan ini tidak bisa dibatalkan.').then(function (ok) {
         if (!ok) return;
         S.remove('transaksi', t.id).then(function () { toast('Transaksi dihapus'); render(); }).catch(function (e) { toast(e.message, 'err'); });
@@ -755,12 +1059,12 @@
     'del-div': function (b) {
       var x = S.data.dividen.filter(function (r) { return r.id === b.dataset.id; })[0];
       if (!x) return;
-      confirmDialog('Hapus dividen?', esc(fmtDate(x.tanggal) + ' · ' + x.kode + ' ' + rp(x.jumlah)) + '. Tindakan ini tidak bisa dibatalkan.').then(function (ok) {
+      confirmDialog('Hapus catatan ' + nounLower(x.pasar) + '?', esc(fmtDate(x.tanggal) + ' · ' + x.kode + ' ' + money(x.jumlah, ccyOf(x.pasar))) + '. Tindakan ini tidak bisa dibatalkan.').then(function (ok) {
         if (!ok) return;
-        S.remove('dividen', x.id).then(function () { toast('Dividen dihapus'); render(); }).catch(function (e) { toast(e.message, 'err'); });
+        S.remove('dividen', x.id).then(function () { toast('Catatan dihapus'); render(); }).catch(function (e) { toast(e.message, 'err'); });
       });
     },
-    'price': function (b) { openPriceForm(b.dataset.kode); },
+    'price': function (b) { openPriceForm(b.dataset.key); },
     'reload': function (b) { reloadFromSheet(b); },
     'disconnect': function () {
       confirmDialog('Putuskan Google Sheets?', 'Aplikasi kembali ke mode lokal dan menampilkan data yang tersimpan di browser ini. Data di spreadsheet tidak dihapus.', 'Putuskan').then(function (ok) {
@@ -773,22 +1077,21 @@
     },
     'upload-local': function (b) {
       var l = S.localData();
-      confirmDialog('Unggah data lokal ke Sheet?', 'Isi tab Transaksi dan Dividen di spreadsheet akan diganti dengan ' + l.transaksi.length + ' transaksi dan ' + l.dividen.length + ' dividen dari browser ini.', 'Unggah').then(function (ok) {
+      confirmDialog('Unggah data lokal ke Sheet?', 'Isi semua tab transaksi dan dividen di spreadsheet akan diganti dengan ' + l.transaksi.length + ' transaksi dan ' + l.dividen.length + ' dividen dari browser ini.', 'Unggah').then(function (ok) {
         if (!ok) return;
         guard(b, function () { return S.uploadLocal().then(function () { toast('Data terunggah ke Google Sheets'); render(); }); });
       });
     },
     'export-json': function () {
-      download('porto-cadangan-' + ymd(new Date()) + '.json', JSON.stringify({ versi: 1, transaksi: S.data.transaksi, dividen: S.data.dividen }, null, 2), 'application/json');
+      download('porto-cadangan-' + ymd(new Date()) + '.json', JSON.stringify({ versi: 2, transaksi: S.data.transaksi, dividen: S.data.dividen }, null, 2), 'application/json');
     },
     'export-trx': function () { download('porto-transaksi-' + ymd(new Date()) + '.csv', csv('transaksi'), 'text/csv'); },
     'export-div': function () { download('porto-dividen-' + ymd(new Date()) + '.csv', csv('dividen'), 'text/csv'); },
     'load-sample': function () {
       if (S.isSheet()) return;
       var run = function () {
-        var base = { transaksi: S.data.transaksi.slice(), dividen: S.data.dividen.slice() };
         var smp = sampleData();
-        S.replaceAll({ transaksi: base.transaksi.concat(smp.transaksi), dividen: base.dividen.concat(smp.dividen) })
+        S.replaceAll({ transaksi: S.data.transaksi.concat(smp.transaksi), dividen: S.data.dividen.concat(smp.dividen) })
           .then(function () { toast('Data contoh dimuat. Hapus lewat Pengaturan.'); render(); });
       };
       if (S.data.transaksi.length || S.data.dividen.length) {
@@ -797,11 +1100,10 @@
     },
     'clear-sample': function () {
       if (S.isSheet()) return;
-      var keep = {
+      S.replaceAll({
         transaksi: S.data.transaksi.filter(function (r) { return r.catatan !== 'Contoh'; }),
         dividen: S.data.dividen.filter(function (r) { return r.catatan !== 'Contoh'; })
-      };
-      S.replaceAll(keep).then(function () { toast('Data contoh dihapus'); render(); });
+      }).then(function () { toast('Data contoh dihapus'); render(); });
     }
   };
 
@@ -809,7 +1111,7 @@
     var dl = e.target.closest('[data-dlg]');
     if (dl) {
       if (dl.dataset.dlg === 'close') closeDialog();
-      if (dl.dataset.dlg === 'clear-price') { S.setManual(dl.dataset.kode, 0); closeDialog(); render(); }
+      if (dl.dataset.dlg === 'clear-price') { S.setManual(dl.dataset.key, 0); closeDialog(); render(); }
       return;
     }
     var b = e.target.closest('[data-act]');
@@ -888,10 +1190,25 @@
     if (form.id === 'form-fee') {
       e.preventDefault();
       var f2 = new FormData(form);
-      var fb = C.num(f2.get('feeBeli')), fj = C.num(f2.get('feeJual'));
-      if (fb < 0 || fj < 0 || fb > 5 || fj > 5) return toast('Fee harus antara 0 dan 5 persen.', 'err');
-      S.saveSettings({ feeBeli: fb, feeJual: fj });
+      var next = {};
+      for (var i = 0; i < ORDER.length; i++) {
+        var mk = ORDER[i];
+        var b = C.num(f2.get('fee_' + mk + '_beli')), j = C.num(f2.get('fee_' + mk + '_jual'));
+        if (b < 0 || j < 0 || b > 5 || j > 5) return toast('Fee harus antara 0 dan 5 persen.', 'err');
+        next[mk] = { beli: b, jual: j };
+      }
+      S.saveSettings({ fee: next });
       toast('Biaya broker disimpan');
+      return;
+    }
+    if (form.id === 'form-ccy') {
+      e.preventDefault();
+      var f3 = new FormData(form);
+      var kurs = f3.get('kurs') === '' ? 0 : C.num(f3.get('kurs'));
+      if (kurs < 0) return toast('Kurs tidak boleh negatif.', 'err');
+      S.saveSettings({ cryptoCcy: f3.get('cryptoCcy'), kurs: kurs });
+      toast('Pengaturan disimpan');
+      render();
     }
   });
 

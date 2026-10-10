@@ -3,6 +3,7 @@
  * Dua mode:
  *  - lokal  : disimpan di browser (localStorage), cocok untuk mencoba.
  *  - sheet  : disimpan di Google Sheets milik Anda lewat Apps Script (apps-script/Code.gs).
+ * Setiap baris punya `pasar`: ID (saham Indonesia), US (saham US), CRYPTO.
  */
 (function (root) {
   'use strict';
@@ -11,20 +12,36 @@
   var KEY_CACHE = 'porto.cache.v1';
   var KEY_SETTINGS = 'porto.settings.v1';
   var KEY_MANUAL = 'porto.manual.v1';
-  var KEY_PRICES = 'porto.prices.v1';
+  var KEY_PRICES = 'porto.prices.v2';
 
-  var DEFAULTS = { url: '', token: '', feeBeli: 0.15, feeJual: 0.25 };
+  var MARKETS = ['ID', 'US', 'CRYPTO'];
+
+  var DEFAULTS = {
+    url: '',
+    token: '',
+    market: 'ALL',
+    cryptoCcy: 'IDR',
+    kurs: 0,
+    fee: {
+      ID: { beli: 0.15, jual: 0.25 },
+      US: { beli: 0, jual: 0 },
+      CRYPTO: { beli: 0.2, jual: 0.2 }
+    }
+  };
 
   var COLS = {
-    transaksi: ['id', 'tanggal', 'kode', 'jenis', 'lot', 'harga', 'fee', 'catatan'],
-    dividen: ['id', 'tanggal', 'kode', 'lot', 'dps', 'pajak', 'jumlah', 'catatan']
+    transaksi: ['id', 'pasar', 'tanggal', 'kode', 'jenis', 'qty', 'harga', 'fee', 'catatan'],
+    dividen: ['id', 'pasar', 'tanggal', 'kode', 'qty', 'dps', 'pajak', 'jumlah', 'catatan']
   };
-  var NUMERIC = { lot: 1, harga: 1, fee: 1, dps: 1, pajak: 1, jumlah: 1 };
+  var NUMERIC = { qty: 1, harga: 1, fee: 1, dps: 1, pajak: 1, jumlah: 1 };
+  var EMPTY = { transaksi: [], dividen: [] };
 
   var data = { transaksi: [], dividen: [] };
-  var settings = load(KEY_SETTINGS, DEFAULTS);
+  var settings = normalizeSettings(load(KEY_SETTINGS, DEFAULTS));
   var manual = load(KEY_MANUAL, {});
-  var prices = load(KEY_PRICES, { at: 0, items: {} });
+  var prices = load(KEY_PRICES, { at: 0, items: {}, fx: null });
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
   function load(key, fallback) {
     try {
@@ -38,21 +55,44 @@
   function save(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* penyimpanan penuh / diblokir */ }
   }
-  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  /** Lengkapi pengaturan dan pindahkan fee versi lama (satu pasar) ke fee.ID. */
+  function normalizeSettings(s) {
+    var out = Object.assign(clone(DEFAULTS), s);
+    var fee = clone(DEFAULTS.fee);
+    MARKETS.forEach(function (m) {
+      if (s.fee && s.fee[m]) fee[m] = Object.assign(fee[m], s.fee[m]);
+    });
+    if (typeof s.feeBeli === 'number' || typeof s.feeJual === 'number') {
+      if (typeof s.feeBeli === 'number') fee.ID.beli = s.feeBeli;
+      if (typeof s.feeJual === 'number') fee.ID.jual = s.feeJual;
+    }
+    out.fee = fee;
+    delete out.feeBeli;
+    delete out.feeJual;
+    if (['ALL'].concat(MARKETS).indexOf(out.market) < 0) out.market = 'ALL';
+    if (out.cryptoCcy !== 'USD') out.cryptoCcy = 'IDR';
+    return out;
+  }
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
+  /** Rapikan satu baris. Data lama (kolom "lot", tanpa pasar) otomatis menjadi pasar ID. */
   function clean(kind, row) {
+    var src = Object.assign({}, row);
+    if ((src.qty === undefined || src.qty === '') && src.lot !== undefined) src.qty = src.lot;
     var out = {};
     COLS[kind].forEach(function (c) {
-      var v = row[c];
-      if (NUMERIC[c]) out[c] = (v === '' || v == null) ? '' : Number(v);
+      var v = src[c];
+      if (NUMERIC[c]) out[c] = (v === '' || v == null || isNaN(Number(v))) ? '' : Number(v);
       else out[c] = v == null ? '' : String(v);
     });
+    out.pasar = MARKETS.indexOf(String(out.pasar).toUpperCase()) >= 0 ? String(out.pasar).toUpperCase() : 'ID';
     out.kode = String(out.kode || '').trim().toUpperCase();
     out.tanggal = String(out.tanggal || '').slice(0, 10);
+    if (kind === 'transaksi') out.jenis = String(out.jenis || '').trim().toUpperCase();
     if (!out.id) out.id = uid();
     return out;
   }
@@ -84,8 +124,14 @@
 
   // Mode lokal menulis ke KEY_DATA; mode sheet hanya menyimpan cache di KEY_CACHE
   // sehingga data lokal tidak tertimpa saat Sheet disambungkan.
-  function persistLocal() { save(isSheet() ? KEY_CACHE : KEY_DATA, data); }
-  var EMPTY = { transaksi: [], dividen: [] };
+  function persist() { save(isSheet() ? KEY_CACHE : KEY_DATA, data); }
+
+  function normalizeData(d) {
+    return {
+      transaksi: ((d && d.transaksi) || []).map(function (r) { return clean('transaksi', r); }),
+      dividen: ((d && d.dividen) || []).map(function (r) { return clean('dividen', r); })
+    };
+  }
 
   var Store = {
     get data() { return data; },
@@ -94,37 +140,39 @@
     get prices() { return prices; },
     isSheet: isSheet,
     COLS: COLS,
+    MARKETS: MARKETS,
 
     saveSettings: function (patch) {
-      settings = Object.assign({}, settings, patch);
+      settings = normalizeSettings(Object.assign({}, settings, patch));
       save(KEY_SETTINGS, settings);
+    },
+
+    /** Kurs USD ke Rupiah: kurs live dari Sheet, bila tidak ada pakai kurs cadangan dari Pengaturan. */
+    fx: function () {
+      return (prices.fx > 0 && prices.fx) || (settings.kurs > 0 && settings.kurs) || 0;
     },
 
     /** Muat data awal. Mode sheet: ambil dari Google Sheets, cadangkan ke cache lokal. */
     init: function () {
       if (!isSheet()) {
-        data = load(KEY_DATA, EMPTY);
+        data = normalizeData(load(KEY_DATA, EMPTY));
         return Promise.resolve({ mode: 'lokal' });
       }
-      data = load(KEY_CACHE, EMPTY);
+      data = normalizeData(load(KEY_CACHE, EMPTY));
       return Store.reload();
     },
 
     reload: function () {
       return api('GET', { action: 'all' }).then(function (j) {
-        data = {
-          transaksi: (j.transaksi || []).map(function (r) { return clean('transaksi', r); }),
-          dividen: (j.dividen || []).map(function (r) { return clean('dividen', r); })
-        };
-        persistLocal();
+        data = normalizeData(j);
+        persist();
         return { mode: 'sheet' };
       });
     },
 
     /** Data yang dicatat dalam mode lokal (terpisah dari cache Sheet). */
     localData: function () {
-      var l = load(KEY_DATA, EMPTY);
-      return { transaksi: l.transaksi || [], dividen: l.dividen || [] };
+      return normalizeData(load(KEY_DATA, EMPTY));
     },
 
     /** Sambungkan ke Sheet; bila gagal, pengaturan dan data lama dikembalikan. */
@@ -142,23 +190,21 @@
 
     disconnect: function () {
       Store.saveSettings({ url: '', token: '' });
-      data = load(KEY_DATA, EMPTY);
+      data = normalizeData(load(KEY_DATA, EMPTY));
     },
 
     uploadLocal: function () {
       return Store.replaceAll(Store.localData());
     },
 
-    ping: function () {
-      return api('GET', { action: 'ping' });
-    },
+    ping: function () { return api('GET', { action: 'ping' }); },
 
     add: function (kind, row) {
       var r = clean(kind, row);
       var step = isSheet() ? api('POST', { action: 'add', sheet: kind, row: r }) : Promise.resolve();
       return step.then(function () {
         data[kind].push(r);
-        persistLocal();
+        persist();
         return r;
       });
     },
@@ -169,57 +215,56 @@
       return step.then(function () {
         var i = data[kind].findIndex(function (x) { return x.id === r.id; });
         if (i > -1) data[kind][i] = r; else data[kind].push(r);
-        persistLocal();
+        persist();
         return r;
       });
     },
 
     remove: function (kind, id) {
-      var step = isSheet() ? api('POST', { action: 'delete', sheet: kind, id: id }) : Promise.resolve();
+      var existing = data[kind].filter(function (x) { return x.id === id; })[0];
+      var step = isSheet()
+        ? api('POST', { action: 'delete', sheet: kind, id: id, pasar: existing ? existing.pasar : '' })
+        : Promise.resolve();
       return step.then(function () {
         data[kind] = data[kind].filter(function (x) { return x.id !== id; });
-        persistLocal();
+        persist();
       });
     },
 
     /** Ganti seluruh isi (impor / unggah data lokal ke Sheet). */
     replaceAll: function (next) {
-      var n = {
-        transaksi: (next.transaksi || []).map(function (r) { return clean('transaksi', r); }),
-        dividen: (next.dividen || []).map(function (r) { return clean('dividen', r); })
-      };
+      var n = normalizeData(next);
       var step = isSheet() ? api('POST', { action: 'replaceAll', transaksi: n.transaksi, dividen: n.dividen }) : Promise.resolve();
       return step.then(function () {
         data = n;
-        persistLocal();
+        persist();
       });
     },
 
-    // ---- harga ----
-    setManual: function (kode, price) {
-      if (price > 0) manual[kode] = price; else delete manual[kode];
+    // ---- harga (kunci "PASAR:KODE") ----
+    setManual: function (key, price) {
+      if (price > 0) manual[key] = price; else delete manual[key];
       save(KEY_MANUAL, manual);
     },
 
-    fetchPrices: function (symbols) {
+    fetchPrices: function (keys) {
       if (!isSheet()) return Promise.reject(new Error('Harga otomatis butuh koneksi ke Google Sheets (menu Pengaturan).'));
-      if (!symbols.length) return Promise.resolve(prices);
-      return api('GET', { action: 'prices', symbols: symbols.join(',') }).then(function (j) {
+      return api('GET', { action: 'prices', symbols: keys.join(',') }).then(function (j) {
         var items = Object.assign({}, prices.items);
         Object.keys(j.prices || {}).forEach(function (k) {
           if (j.prices[k] && j.prices[k].price > 0) items[k] = j.prices[k];
         });
-        prices = { at: Date.now(), items: items, errors: j.errors || {} };
+        prices = { at: Date.now(), items: items, errors: j.errors || {}, fx: j.fx > 0 ? j.fx : prices.fx };
         save(KEY_PRICES, prices);
         return prices;
       });
     },
 
-    /** Harga yang dipakai: live > manual > tidak ada. */
-    priceFor: function (kode) {
-      var live = prices.items && prices.items[kode];
+    /** Harga mentah dalam mata uang kutipan sumbernya: live lebih dulu, lalu manual. */
+    priceFor: function (key) {
+      var live = prices.items && prices.items[key];
       if (live && live.price > 0) return { price: live.price, prev: live.prev, source: 'live', time: live.time };
-      if (manual[kode] > 0) return { price: manual[kode], prev: null, source: 'manual' };
+      if (manual[key] > 0) return { price: manual[key], prev: null, source: 'manual' };
       return null;
     }
   };
