@@ -4,5 +4,5 @@
  * dicari atau dibuat otomatis di Drive akun yang login.
  */
 window.PORTO_CONFIG = {
-  clientId: ''
+  clientId: '37298618187-nuek936ktohdi5jjckn9rnplfg9ur4jt.apps.googleusercontent.com'
 };
