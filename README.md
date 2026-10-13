@@ -37,14 +37,14 @@ Aplikasi membaca dan menulis spreadsheet langsung dari browser Anda memakai logi
 2. **APIs & Services → Library**: aktifkan **Google Sheets API**.
 3. **OAuth consent screen**: tipe External, status Testing, tambahkan semua akun Gmail Anda sebagai **Test users**.
 4. **Credentials → OAuth client ID → Web application**. Di **Authorized JavaScript origins** isi `https://<username>.github.io` (tanpa garis miring).
-5. Buka aplikasi (alamat GitHub Pages) → **Pengaturan → Masuk dengan Google**, tempel Client ID dan tautan spreadsheet, klik masuk.
+5. Isi `clientId` di `js/config.js` (Client ID bukan rahasia) lalu commit. Setelah itu siapa pun yang membuka situs cukup klik **Masuk dengan Google**. Alternatif tanpa edit file: **Pengaturan → Masuk dengan Google**, tempel Client ID dan tautan spreadsheet.
 
 Catatan: Google menampilkan peringatan "aplikasi belum diverifikasi" untuk aplikasi pribadi, pilih Lanjutkan. Izin yang diminta (`spreadsheets`) berlaku untuk semua spreadsheet di akun yang login, walau aplikasi hanya membuka satu. Token berlaku sekitar satu jam; setelah itu klik **Masuk dengan Google** lagi. Tab data dibuat otomatis, dengan nama yang sama seperti versi Apps Script.
 
 ### Harga terbaru
 
-- **Crypto**: API publik Binance (`data-api.binance.vision`, tanpa API key). Harga terakhir dan perubahan 24 jam terhadap pasangan USDT. Bila Binance tidak terjangkau dari jaringan Anda, otomatis memakai GOOGLEFINANCE.
-- **Saham Indonesia dan US, serta kurs USD ke Rupiah**: rumus `GOOGLEFINANCE` di tab **Harga** pada spreadsheet Anda (dibuat dan diisi otomatis). Google menyebut data bursa Indonesia tertunda sekitar 10 menit.
+- **Crypto real-time**: WebSocket publik Binance (`data-stream.binance.vision`), harga bergerak langsung di Dashboard dan tidak butuh login. Bila terputus, menyambung ulang otomatis. Untuk pembaruan berkala dipakai API publik Binance (`data-api.binance.vision`, tanpa API key). Harga terakhir dan perubahan 24 jam terhadap pasangan USDT. Bila Binance tidak terjangkau dari jaringan Anda, otomatis memakai GOOGLEFINANCE.
+- **Saham Indonesia dan US, serta kurs USD ke Rupiah**: diperbarui tiap sekitar 1 menit saat halaman terbuka dan sudah login, lewat rumus `GOOGLEFINANCE` di tab **Harga** pada spreadsheet Anda (dibuat dan diisi otomatis). Google menyebut data bursa Indonesia tertunda sekitar 10 menit.
 - **Stockbit**: tidak dipakai karena tidak ada API publik resmi untuk pengembang.
 
 ## Apps Script (opsional, untuk catat lewat chat)
@@ -106,6 +106,7 @@ Tanpa proses build. Logika hitung ada di `js/calc.js`, backend di `apps-script/C
 node tests/calc.test.js
 node tests/appsscript.test.js
 node tests/gsheets.test.js
+node tests/live.test.js
 ```
 
 ## Catatan

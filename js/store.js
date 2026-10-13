@@ -63,7 +63,10 @@
   function normalizeSettings(s) {
     var out = Object.assign(clone(DEFAULTS), s);
     out.google = Object.assign(clone(DEFAULTS.google), s.google || {});
-    if (out.source !== 'google' && out.source !== 'apps') out.source = (out.url && /^https:\/\//.test(out.url)) ? 'apps' : '';
+    if (['google', 'apps', 'local'].indexOf(out.source) < 0) {
+      var cfg = root.PORTO_CONFIG || {};
+      out.source = (out.url && /^https:\/\//.test(out.url)) ? 'apps' : (cfg.clientId && cfg.sheetId ? 'google' : '');
+    }
     var fee = clone(DEFAULTS.fee);
     MARKETS.forEach(function (m) {
       if (s.fee && s.fee[m]) fee[m] = Object.assign(fee[m], s.fee[m]);
@@ -103,8 +106,13 @@
   }
 
   /** 'google' (login Google + Sheets API), 'apps' (Apps Script) atau 'lokal'. */
+  /** Client ID dan sheet: dari Pengaturan, bila kosong dari js/config.js. */
+  function gcfg() {
+    var c = root.PORTO_CONFIG || {}, g = settings.google || {};
+    return { clientId: g.clientId || c.clientId || '', sheetId: g.sheetId || c.sheetId || '', email: g.email || '' };
+  }
   function mode() {
-    var g = settings.google;
+    var g = gcfg();
     if (settings.source === 'google' && g.clientId && g.sheetId) return 'google';
     if (settings.source === 'apps' && settings.url && /^https:\/\//.test(settings.url)) return 'apps';
     return 'lokal';
@@ -114,7 +122,7 @@
   // ---- Google: auth dan klien dibuat ulang bila Client ID atau Sheet berubah ----
   var gCache = { key: '', auth: null, client: null };
   function google() {
-    var g = settings.google;
+    var g = gcfg();
     var key = g.clientId + '|' + g.sheetId;
     if (gCache.key !== key) {
       if (gCache.auth) gCache.auth.signOut();
@@ -277,7 +285,7 @@
     disconnect: function () {
       Store.signOut();
       gCache = { key: '', auth: null, client: null };
-      Store.saveSettings({ source: '', url: '', token: '', google: { clientId: '', sheetId: '', email: '' } });
+      Store.saveSettings({ source: 'local', url: '', token: '', google: { clientId: '', sheetId: '', email: '' } });
       data = normalizeData(load(KEY_DATA, EMPTY));
     },
 
@@ -347,6 +355,16 @@
         return prices;
       });
     },
+
+    /** Harga real-time dari WebSocket (tidak menimpa waktu pembaruan REST). */
+    setLive: function (key, tick) {
+      prices.items = prices.items || {};
+      prices.items[key] = tick;
+    },
+    savePrices: function () { save(KEY_PRICES, prices); },
+    /** Kunci pasar dengan pengaturan Google/Apps Script tersedia atau tidak, untuk tampilan. */
+    googleReady: function () { var g = gcfg(); return !!(g.clientId && g.sheetId); },
+    googleCfg: gcfg,
 
     /** Harga mentah dalam mata uang kutipan sumbernya: live lebih dulu, lalu manual. */
     priceFor: function (key) {

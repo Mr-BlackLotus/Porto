@@ -95,6 +95,7 @@
     route: 'dashboard',
     loadError: '',
     refreshing: false,
+    live: 'idle',
     f: { trx: { kode: '', jenis: '', tahun: '' }, div: { kode: '', tahun: '' } },
     focusId: ''
   };
@@ -174,6 +175,12 @@
 
   function banner(html, kind) {
     return '<div class="banner ' + (kind || '') + '" role="status"><div>' + html + '</div></div>';
+  }
+
+  function loginGate() {
+    return '<div class="panel empty login-gate"><h3>Masuk untuk membuka portofolio</h3>' +
+      '<p>Data Anda ada di Google Sheets. Masuk dengan akun Google yang punya akses ke spreadsheet.</p>' +
+      '<div class="row"><button class="btn primary" data-act="google-login" type="button">Masuk dengan Google</button></div></div>';
   }
 
   function emptyState(title, text, local) {
@@ -572,8 +579,8 @@
         : '<div><strong>' + (am ? 'Sedang memakai Apps Script.' : 'Belum tersambung.') + '</strong> Isi Client ID dan tautan spreadsheet, lalu masuk.</div>') + '</div>' +
       (location.protocol === 'file:' ? '<div class="banner err" style="margin-bottom:16px"><div>Login Google tidak berjalan dari file lokal. Buka lewat alamat GitHub Pages Anda.</div></div>' : '') +
       '<form id="form-google" class="form-grid" autocomplete="off">' +
-      '<div class="field wide"><label for="g-client">Client ID Google</label><input id="g-client" name="clientId" type="text" placeholder="123456-abc.apps.googleusercontent.com" value="' + esc(g.clientId) + '"><span class="hint">Dari Google Cloud Console (langkah di bawah). Client ID bukan rahasia.</span></div>' +
-      '<div class="field wide"><label for="g-sheet">Tautan atau ID spreadsheet</label><input id="g-sheet" name="sheet" type="text" placeholder="https://docs.google.com/spreadsheets/d/…" value="' + esc(g.sheetId) + '"></div>' +
+      '<div class="field wide"><label for="g-client">Client ID Google</label><input id="g-client" name="clientId" type="text" placeholder="123456-abc.apps.googleusercontent.com" value="' + esc(S.googleCfg().clientId) + '"><span class="hint">Dari Google Cloud Console (langkah di bawah). Client ID bukan rahasia.</span></div>' +
+      '<div class="field wide"><label for="g-sheet">Tautan atau ID spreadsheet</label><input id="g-sheet" name="sheet" type="text" placeholder="https://docs.google.com/spreadsheets/d/…" value="' + esc(S.googleCfg().sheetId) + '"></div>' +
       '<div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" type="submit">' + (gm ? 'Simpan dan masuk ulang' : 'Masuk dengan Google') + '</button>' +
       (gm ? '<button class="btn outline" type="button" data-act="reload">Muat ulang dari Sheet</button><button class="btn danger" type="button" data-act="google-logout">Putuskan</button>' : '') +
       '</div></form>' +
@@ -661,14 +668,14 @@
       var bad = !!state.loadError;
       el.className = 'sync ' + (bad ? 'err' : 'on');
       el.innerHTML = '<span class="dot"></span>' + (bad ? 'Gagal terhubung ke Google Sheets' : 'Tersambung' + (S.mode() === 'google' && S.email() ? ' · ' + esc(S.email()) : ' ke Google Sheets')) +
-        '<br><span style="opacity:.8">' + (S.prices.at ? 'Harga: ' + hhmm(S.prices.at) : 'Harga belum diperbarui') + '</span>';
+        '<br><span style="opacity:.8">' + (S.prices.at ? 'Harga: ' + hhmm(S.prices.at) : 'Harga belum diperbarui') + (state.live === 'on' ? ' · crypto live' : '') + '</span>';
     } else {
       el.className = 'sync';
-      el.innerHTML = '<span class="dot"></span>Mode lokal<br><span style="opacity:.8">Data hanya di browser ini. <a href="#/pengaturan">Hubungkan Sheet</a></span>';
+      el.innerHTML = '<span class="dot"></span>Mode lokal<br><span style="opacity:.8">Data hanya di browser ini. <a href="#/pengaturan">Hubungkan Sheet</a>' + (state.live === 'on' ? ' · crypto live' : '') + '</span>';
     }
     var btn = $('#btn-refresh');
     btn.disabled = state.refreshing;
-    btn.textContent = state.refreshing ? 'Memperbarui…' : 'Perbarui harga';
+    btn.textContent = state.refreshing ? 'Memperbarui…' : (S.needLogin() ? 'Masuk dengan Google' : 'Perbarui harga');
   }
 
   function render() {
@@ -677,7 +684,9 @@
     document.title = route.label + ' · Porto';
     renderNav();
     renderMarkets(route);
-    $('#view').innerHTML = VIEWS[route.id](compute());
+    var gate = S.needLogin() && route.id !== 'pengaturan' && !S.data.transaksi.length && !S.data.dividen.length;
+    $('#view').innerHTML = gate ? loginGate() : VIEWS[route.id](compute());
+    liveKeys();
     renderSync();
     var sel = selMarket();
     $('#btn-add-div').textContent = sel === 'CRYPTO' ? 'Catat reward' : 'Catat dividen';
@@ -974,6 +983,24 @@
     if (!S.needLogin()) return Promise.resolve();
     return S.signIn().then(function () { return S.reload(); }).then(function () { state.loadError = ''; });
   }
+
+  // ---------- crypto real-time (WebSocket Binance) ----------
+  var liveTimer = null;
+  var live = root_Live().create({
+    onTick: function (key, tick) {
+      S.setLive(key, tick);
+      if (liveTimer) return;
+      liveTimer = setTimeout(function () {
+        liveTimer = null;
+        S.savePrices();
+        var dlg = $('#dlg');
+        if (state.route === 'dashboard' && !(dlg && dlg.open)) render();
+      }, 1000);
+    },
+    onState: function (st) { state.live = st; renderSync(); }
+  });
+  function root_Live() { return window.Live; }
+  function liveKeys() { live.setKeys(openKeys()); }
 
   function refreshPrices(manualClick) {
     if (!S.isSheet()) {
@@ -1298,9 +1325,9 @@
   });
 
   setInterval(function () {
-    if (!document.hidden && S.isSheet() && !S.needLogin() && Date.now() - (S.prices.at || 0) > 5 * 60 * 1000) refreshPrices(false);
+    if (!document.hidden && S.isSheet() && !S.needLogin() && Date.now() - (S.prices.at || 0) > 55 * 1000) refreshPrices(false);
   }, 60 * 1000);
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && S.isSheet() && !S.needLogin() && Date.now() - (S.prices.at || 0) > 5 * 60 * 1000) refreshPrices(false);
+    if (!document.hidden && S.isSheet() && !S.needLogin() && Date.now() - (S.prices.at || 0) > 55 * 1000) refreshPrices(false);
   });
 }());
