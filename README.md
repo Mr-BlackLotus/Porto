@@ -5,6 +5,7 @@ Aplikasi web untuk mencatat jual beli, dividen, dan memantau profit per bulan. T
 ## Fitur
 
 - **Dashboard**: total hasil investasi, nilai portofolio, profit belum terealisasi, profit jual, dividen/reward, perubahan harga hari ini, grafik profit 12 bulan terakhir, alokasi.
+- **Rincian emiten**: klik kode saham/koin (misalnya BBCA) untuk melihat riwayat jual beli, riwayat dividen, total profit, profil Trading/Investing, dan info otomatis: selisih harga sekarang dengan harga jual terakhir dan harga rata-rata, serta pola bulan pembagian dividen dari catatan Anda (peringatan bila perkiraan jatuh dalam 90 hari). Info ini berbasis aturan sederhana, bukan AI dan bukan saran investasi. Profil Trading/Investing tersimpan di browser.
 - **Pasar terpisah**: pilih Semua, Saham Indonesia, Saham US, atau Crypto di bagian atas. Satuan menyesuaikan: lot (1 lot = 100 lembar) untuk saham Indonesia, lembar pecahan untuk saham US, koin pecahan untuk crypto. Saham US dalam dolar, crypto dalam Rupiah atau dolar (pilihan Anda).
 - **Transaksi**: catat beli dan jual. Profit tiap penjualan dihitung otomatis dengan metode harga rata-rata. Penjualan yang melebihi kepemilikan ditolak.
 - **Dividen / reward**: per aset, dengan pajak. Ringkasan per aset dan per tahun.
@@ -110,6 +111,7 @@ node tests/appsscript.test.js
 node tests/gsheets.test.js
 node tests/live.test.js
 node tests/locate.test.js
+node tests/insight.test.js
 ```
 
 ## Catatan

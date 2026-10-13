@@ -14,6 +14,7 @@
   var KEY_SETTINGS = 'porto.settings.v1';
   var KEY_MANUAL = 'porto.manual.v1';
   var KEY_PRICES = 'porto.prices.v2';
+  var KEY_PROFIL = 'porto.profil.v1';
 
   var MARKETS = ['ID', 'US', 'CRYPTO'];
 
@@ -43,6 +44,7 @@
   var settings = normalizeSettings(load(KEY_SETTINGS, DEFAULTS));
   var manual = load(KEY_MANUAL, {});
   var prices = load(KEY_PRICES, { at: 0, items: {}, fx: null });
+  var profil = load(KEY_PROFIL, {});
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
@@ -355,6 +357,13 @@
         data = n;
         persist();
       });
+    },
+
+    /** Profil emiten: 'trading' atau 'investing' (kunci "PASAR:KODE"). Tersimpan di browser ini. */
+    profile: function (key) { return profil[key] === 'trading' || profil[key] === 'investing' ? profil[key] : ''; },
+    setProfile: function (key, v) {
+      if (v === 'trading' || v === 'investing') profil[key] = v; else delete profil[key];
+      save(KEY_PROFIL, profil);
     },
 
     // ---- harga (kunci "PASAR:KODE") ----

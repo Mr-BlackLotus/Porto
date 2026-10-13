@@ -85,6 +85,7 @@
 
   var ROUTES = [
     { id: 'dashboard', label: 'Dashboard', icon: 'home', markets: true },
+    { id: 'emiten', label: 'Emiten', icon: 'home', markets: false, hidden: true },
     { id: 'transaksi', label: 'Transaksi', icon: 'swap', markets: true },
     { id: 'dividen', label: 'Dividen', icon: 'coin', markets: true },
     { id: 'bulanan', label: 'Bulanan', icon: 'chart', markets: true },
@@ -96,6 +97,7 @@
     loadError: '',
     refreshing: false,
     live: 'idle',
+    arg: '',
     f: { trx: { kode: '', jenis: '', tahun: '' }, div: { kode: '', tahun: '' } },
     focusId: ''
   };
@@ -251,7 +253,16 @@
   }
 
   // ---------- halaman: dashboard ----------
-  /** Deretan kartu harga: kode, harga sekarang, naik/turun hari ini, dan untung/rugi posisi hari ini. */
+  var PROFIL_LABEL = { trading: 'Trading', investing: 'Investing' };
+  function emLink(mk, kode, text) {
+    return '<a class="emlink" href="#/emiten/' + encodeURIComponent(mk + ':' + kode) + '">' + esc(text == null ? kode : text) + '</a>';
+  }
+  function profilePill(key) {
+    var v = S.profile(key);
+    return v ? '<span class="pill prof-' + v + ' mini">' + PROFIL_LABEL[v] + '</span>' : '';
+  }
+
+  /** Deretan kartu per emiten: harga sekarang dibanding harga rata-rata (modal) Anda. Klik untuk rincian. */
   function tickerStrip(m) {
     var items = [];
     m.list.forEach(function (mk) {
@@ -262,17 +273,40 @@
     if (!items.length) return '';
     items.sort(function (a, b) { return b.r.value * b.rate - a.r.value * a.rate; });
     var liveCrypto = state.live === 'on';
-    return '<section class="ticker" aria-label="Pergerakan harga hari ini">' + items.map(function (x) {
-      var r = x.r, hasDay = !!r.prev;
-      var c = hasDay ? cls(r.dayPct, 'IDR') : 'flat';
-      var arrow = !hasDay ? '' : (r.dayPct > 0.005 ? '▲ ' : r.dayPct < -0.005 ? '▼ ' : '');
-      var day = x.rate > 0 ? moneySigned(r.dayChange * x.rate, 'IDR') : '';
-      return '<div class="tick ' + c + '"><div class="tk-top"><strong>' + esc(r.kode) + '</strong>' + pill(x.mk, true) +
+    return '<section class="ticker" aria-label="Posisi dibanding modal">' + items.map(function (x) {
+      var r = x.r, c = cls(r.unrealizedPct, 'IDR'), key = x.mk + ':' + r.kode;
+      var arrow = r.unrealizedPct > 0.005 ? '▲ ' : r.unrealizedPct < -0.005 ? '▼ ' : '';
+      var pl = x.rate > 0 ? moneySigned(r.unrealized * x.rate, 'IDR') : '';
+      return '<a class="tick ' + c + '" href="#/emiten/' + encodeURIComponent(key) + '"><div class="tk-top"><strong>' + esc(r.kode) + '</strong>' + pill(x.mk, true) + profilePill(key) +
         (x.mk === 'CRYPTO' && liveCrypto && r.source === 'live' ? '<span class="live-dot" title="Live"></span>' : '') + '</div>' +
         '<div class="tk-price">' + pxf(r.price, x.ccy) + '</div>' +
-        '<div class="tk-chg">' + (hasDay ? arrow + pct(r.dayPct) : '<span class="muted">tanpa data hari ini</span>') + '</div>' +
-        '<div class="tk-pos">' + (hasDay && day ? 'Posisi ' + day + ' hari ini' : '') + '</div></div>';
+        '<div class="tk-chg">' + arrow + pct(r.unrealizedPct) + ' <span class="muted" style="font-weight:500">dari modal</span></div>' +
+        '<div class="tk-pos">Rata-rata ' + pxf(r.avg, x.ccy) + (pl ? ' · ' + pl : '') + '</div></a>';
     }).join('') + '</section>';
+  }
+
+  /** Ringkasan Trading vs Investing, tampil bila ada emiten yang sudah diberi profil. */
+  function profileSection(m) {
+    var g = { trading: { n: 0, value: 0, cost: 0, unrealized: 0 }, investing: { n: 0, value: 0, cost: 0, unrealized: 0 }, none: { n: 0, value: 0, cost: 0, unrealized: 0 } };
+    m.list.forEach(function (mk) {
+      var rate = m.rt(mk);
+      if (!rate) return;
+      m.per[mk].summary.rows.forEach(function (r) {
+        var o = g[S.profile(mk + ':' + r.kode) || 'none'];
+        o.n++; o.value += r.value * rate; o.cost += r.cost * rate; o.unrealized += r.unrealized * rate;
+      });
+    });
+    if (!g.trading.n && !g.investing.n) return '';
+    var ccy = m.dispCcy;
+    function line(label, o) {
+      if (!o.n) return '';
+      return '<tr><td class="kode">' + label + '<span class="sub muted" style="font-weight:500">' + o.n + ' emiten</span></td><td class="num">' + money(o.value, ccy) + '</td><td class="num">' + money(o.cost, ccy) + '</td>' +
+        '<td class="num ' + cls(o.unrealized, ccy) + '">' + moneySigned(o.unrealized, ccy) + '<span class="sub">' + pct(o.cost > 0 ? o.unrealized / o.cost * 100 : 0) + '</span></td></tr>';
+    }
+    return '<section class="section"><div class="section-head"><h2>Trading dan investing</h2><span class="note">Atur profil di halaman tiap emiten</span></div>' +
+      '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Profil</th><th class="num">Nilai</th><th class="num">Modal</th><th class="num">Naik / turun vs modal</th></tr></thead><tbody>' +
+      line('<span class="pill prof-trading">Trading</span>', g.trading) + line('<span class="pill prof-investing">Investing</span>', g.investing) + line('Belum diatur', g.none) +
+      '</tbody></table></div></section>';
   }
 
   function positionsTable(m) {
@@ -284,50 +318,46 @@
 
     if (m.all) {
       rows.sort(function (a, b) { return b.r.value * b.rate - a.r.value * a.rate; });
-      var totV = 0, totU = 0, totD = 0;
+      var totV = 0, totU = 0;
       var body = rows.map(function (x) {
         var r = x.r, v = r.value * x.rate, u = r.unrealized * x.rate;
-        totV += v; totU += u; totD += x.r.dayChange * x.rate;
+        totV += v; totU += u;
         var skipped = x.rate === 0;
-        var dc = r.dayChange * x.rate;
-        return '<tr><td class="kode">' + esc(r.kode) + pill(x.mk, true) + '</td>' +
+        return '<tr><td class="kode">' + emLink(x.mk, r.kode) + pill(x.mk, true) + profilePill(x.mk + ':' + r.kode) + '</td>' +
           '<td class="num">' + qtyf(r.qty, x.mk) + '</td>' +
           '<td class="num">' + (r.hasPrice ? pxf(r.price, x.ccy) : '<span class="muted">–</span>') + '</td>' +
-          '<td class="num ' + (skipped || !r.prev ? 'flat' : cls(dc, 'IDR')) + '">' + (skipped || !r.prev ? '–' : moneySigned(dc, 'IDR') + '<span class="sub">' + pct(r.dayPct) + '</span>') + '</td>' +
           '<td class="num">' + (skipped ? '<span class="muted">–</span>' : idr(v)) + '</td>' +
           '<td class="num ' + (skipped ? 'flat' : cls(u, 'IDR')) + '">' + (skipped ? '–' : moneySigned(u, 'IDR') + '<span class="sub">' + pct(r.unrealizedPct) + '</span>') + '</td>' +
           '<td class="num">' + (r.dividend && !skipped ? idr(r.dividend * x.rate) : '<span class="muted">–</span>') + '</td></tr>';
       }).join('');
-      return '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Aset</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Hari ini</th><th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">Dividen / reward</th></tr></thead><tbody>' + body +
-        '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="num ' + cls(totD, 'IDR') + '">' + (totD ? moneySigned(totD, 'IDR') : '') + '</td><td class="num">' + idr(totV) + '</td><td class="num ' + cls(totU, 'IDR') + '">' + moneySigned(totU, 'IDR') + '</td><td></td></tr></tfoot></table></div>';
+      return '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Aset</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">Dividen / reward</th></tr></thead><tbody>' + body +
+        '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="num">' + idr(totV) + '</td><td class="num ' + cls(totU, 'IDR') + '">' + moneySigned(totU, 'IDR') + '</td><td></td></tr></tfoot></table></div>';
     }
 
     var mk = m.sel, ccy = m.per[mk].ccy, unit = MK[mk].unit;
-    var tv = 0, tu = 0, tdc = 0;
-    rows.forEach(function (x) { tdc += x.r.dayChange; });
+    var tv = 0, tu = 0;
     return '<div class="panel table-wrap"><table class="tbl"><thead><tr>' +
-      '<th>Aset</th><th class="num">Jumlah (' + unit + ')</th><th class="num">Harga rata-rata</th><th class="num">Harga sekarang</th><th class="num">Hari ini</th>' +
+      '<th>Aset</th><th class="num">Jumlah (' + unit + ')</th><th class="num">Harga rata-rata</th><th class="num">Harga sekarang</th>' +
       '<th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">' + noun(mk) + '</th></tr></thead><tbody>' +
       rows.map(function (x) {
         var r = x.r;
         tv += r.value; tu += r.unrealized;
         var priceCell;
         if (r.hasPrice) {
-          priceCell = pxf(r.price, ccy) + (r.prev ? '<span class="sub ' + cls(r.dayChange, ccy) + '">' + pct(r.dayPct) + ' hari ini</span>' : '') +
+          priceCell = pxf(r.price, ccy) +
             (r.source === 'manual' ? '<span class="sub muted">manual <button class="linkbtn" data-act="price" data-key="' + esc(mk + ':' + r.kode) + '" type="button">ubah</button></span>' : '');
         } else {
           priceCell = '<span class="muted">–</span><span class="sub"><button class="linkbtn" data-act="price" data-key="' + esc(mk + ':' + r.kode) + '" type="button">Isi harga</button></span>';
         }
-        return '<tr><td class="kode">' + esc(r.kode) + '</td>' +
+        return '<tr><td class="kode">' + emLink(mk, r.kode) + profilePill(mk + ':' + r.kode) + '</td>' +
           '<td class="num">' + qtyf(r.qty, mk) + '</td>' +
           '<td class="num">' + pxf(r.avg, ccy) + '</td>' +
           '<td class="num">' + priceCell + '</td>' +
-          '<td class="num ' + (r.prev ? cls(r.dayChange, ccy) : 'flat') + '">' + (r.prev ? moneySigned(r.dayChange, ccy) + '<span class="sub">' + pct(r.dayPct) + '</span>' : '–') + '</td>' +
           '<td class="num">' + money(r.value, ccy) + '</td>' +
           '<td class="num ' + cls(r.unrealized, ccy) + '">' + moneySigned(r.unrealized, ccy) + '<span class="sub">' + pct(r.unrealizedPct) + '</span></td>' +
           '<td class="num">' + (r.dividend ? money(r.dividend, ccy) : '<span class="muted">–</span>') + '</td></tr>';
       }).join('') +
-      '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="num ' + cls(tdc, ccy) + '">' + (tdc ? moneySigned(tdc, ccy) : '') + '</td><td class="num">' + money(tv, ccy) + '</td>' +
+      '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="num">' + money(tv, ccy) + '</td>' +
       '<td class="num ' + cls(tu, ccy) + '">' + moneySigned(tu, ccy) + '</td><td></td></tr></tfoot></table></div>';
   }
 
@@ -364,21 +394,19 @@
       return html + emptyState('Belum ada transaksi' + scope, 'Catat pembelian pertama Anda, atau muat data contoh untuk melihat cara kerjanya.', !S.isSheet());
     }
     var a = m.agg, ccy = m.dispCcy;
-    var rowsAll = [];
-    m.list.forEach(function (mk) { rowsAll = rowsAll.concat(m.per[mk].summary.rows); });
-    var hasPrev = rowsAll.some(function (r) { return r.prev; });
     var divLabel = m.all ? 'Dividen dan reward diterima' : noun(m.sel) + ' diterima';
 
     var left = '<div class="hero-figure"><div class="lbl">Total hasil investasi' + (m.all ? ' (semua pasar, dalam Rupiah)' : '') + '</div>' +
       '<div class="big ' + cls(a.totalReturn, ccy) + '">' + moneySigned(a.totalReturn, ccy) + '</div>' +
       '<div class="sub ' + cls(a.totalReturn, ccy) + '">' + pct(a.returnPct) + ' <span class="muted">dari total dana yang dibelikan</span></div>' +
+      (a.cost > 0 ? '<div class="status-line ' + cls(a.unrealized, ccy) + '">' + (a.unrealized > 0 ? '▲ Portofolio naik ' : a.unrealized < 0 ? '▼ Portofolio turun ' : 'Portofolio impas ') +
+        '<strong>' + moneySigned(a.unrealized, ccy) + ' (' + pct(a.unrealizedPct) + ')</strong> <span class="muted">dibanding modal, dengan harga sekarang</span></div>' : '') +
       '<dl class="leader">' +
       lead('Nilai portofolio saat ini', money(a.value, ccy)) +
       lead('Modal aset yang dipegang', money(a.cost, ccy)) +
       lead('Belum terealisasi', moneySigned(a.unrealized, ccy) + ' (' + pct(a.unrealizedPct) + ')', { cls: cls(a.unrealized, ccy) }) +
       lead('Profit jual (terealisasi)', moneySigned(a.realized, ccy), { cls: cls(a.realized, ccy) }) +
       lead(divLabel, moneySigned(a.dividend, ccy), { cls: a.dividend > 0 ? 'gain' : 'flat' }) +
-      (hasPrev ? lead('Perubahan hari ini', moneySigned(a.dayChange, ccy), { cls: cls(a.dayChange, ccy) }) : '') +
       '</dl></div>';
 
     var last12 = m.months.slice(-12);
@@ -395,6 +423,7 @@
 
     html += '<section class="section"><div class="section-head"><h2>Posisi</h2>' +
       '<span class="note">' + (S.prices.at ? 'Harga diperbarui ' + hhmm(S.prices.at) : 'Harga belum diperbarui') + '</span></div>' + positionsTable(m) + '</section>';
+    html += profileSection(m);
 
     // alokasi + dividen
     var alloc = '';
@@ -601,6 +630,115 @@
     return html;
   }
 
+  // ---------- halaman: rincian emiten ----------
+  function viewEmiten(m) {
+    var key = state.arg, pp = key.split(':'), mk = pp[0], kode = pp[1];
+    var back = '<p><a href="#/dashboard">← Kembali ke Dashboard</a></p>';
+    if (!MK[mk] || !kode) return back + '<div class="panel empty"><h3>Emiten tidak dikenali</h3></div>';
+    var per = m.per[mk], ccy = per.ccy;
+    var trx = per.trx.filter(function (t) { return t.kode === kode; }).sort(function (a, b) {
+      var x = C.day(a.tanggal), y = C.day(b.tanggal); return x === y ? 0 : x < y ? 1 : -1;
+    });
+    var dvs = per.dv.filter(function (x) { return x.kode === kode; }).sort(function (a, b) {
+      var x = C.day(a.tanggal), y = C.day(b.tanggal); return x === y ? 0 : x < y ? 1 : -1;
+    });
+    if (!trx.length && !dvs.length) return back + '<div class="panel empty"><h3>Belum ada catatan untuk ' + esc(kode) + '</h3></div>';
+
+    var row = per.summary.rows.filter(function (r) { return r.kode === kode; })[0] || null;
+    var realized = 0, totalBuy = 0;
+    trx.forEach(function (t) {
+      if (t.jenis === 'JUAL' && per.ledger.perTrx[t.id] != null) realized += per.ledger.perTrx[t.id];
+      if (t.jenis === 'BELI') totalBuy += C.qtyOf(t) * MK[mk].mult * C.num(t.harga) + C.num(t.fee);
+    });
+    var divTotal = dvs.reduce(function (s, x) { return s + C.num(x.jumlah); }, 0);
+    var unreal = row ? row.unrealized : 0;
+    var totalProfit = realized + unreal + divTotal;
+    var price = row ? row.price : null;
+    var cur = S.profile(key);
+
+    var html = back + '<section class="em-head"><div><div class="lbl">' + pill(mk) + '</div><h2 class="em-code">' + esc(kode) + '</h2>' +
+      '<div class="muted">' + (row ? 'Harga sekarang <strong style="color:var(--ink)">' + pxf(price, ccy) + '</strong>' + (row.hasPrice ? '' : ' (belum ada harga, dinilai pada harga rata-rata)') : 'Posisi sudah dijual seluruhnya') + '</div></div>' +
+      '<div class="seg" role="group" aria-label="Profil emiten"><span class="lbl">Profil</span>' +
+      [['', 'Belum diatur'], ['trading', 'Trading'], ['investing', 'Investing']].map(function (o) {
+        return '<button type="button" data-act="set-profile" data-key="' + esc(key) + '" data-v="' + o[0] + '" aria-pressed="' + (cur === o[0]) + '">' + o[1] + '</button>';
+      }).join('') + '</div></section>';
+
+    html += '<section class="panel em-stats"><dl class="leader">' +
+      (row ? lead('Jumlah dipegang', qtyf(row.qty, mk) + ' ' + MK[mk].unit) + lead('Harga rata-rata', pxf(row.avg, ccy)) + lead('Nilai sekarang', money(row.value, ccy)) +
+        lead('Belum terealisasi', moneySigned(row.unrealized, ccy) + ' (' + pct(row.unrealizedPct) + ')', { cls: cls(row.unrealized, ccy) }) : '') +
+      lead('Total dana dibelikan', money(totalBuy, ccy)) +
+      lead('Profit jual (terealisasi)', moneySigned(realized, ccy), { cls: cls(realized, ccy) }) +
+      lead(noun(mk) + ' diterima', moneySigned(divTotal, ccy), { cls: divTotal > 0 ? 'gain' : 'flat' }) +
+      lead('Total profit emiten ini', '<strong>' + moneySigned(totalProfit, ccy) + '</strong>' + (totalBuy > 0 ? ' (' + pct(totalProfit / totalBuy * 100) + ')' : ''), { cls: cls(totalProfit, ccy) }) +
+      '</dl></section>';
+
+    // ---- info otomatis ----
+    var notes = [];
+    var rb = price ? Insight.rebuyInsight(trx, price, row ? row.avg : 0) : null;
+    if (rb) {
+      var d = rb.diffPct;
+      notes.push({ tone: rb.tone, title: 'Dibanding harga jual terakhir',
+        text: 'Terakhir Anda jual ' + fmtDate(rb.lastSell.tanggal) + ' di ' + pxf(rb.lastSell.harga, ccy) + '. Harga sekarang ' + pxf(price, ccy) + ', selisih ' +
+          '<strong class="' + cls(d, 'IDR') + '">' + pct(d) + '</strong>: ' + rb.message });
+    } else if (price && !trx.some(function (t) { return t.jenis === 'JUAL'; })) {
+      notes.push({ tone: 'neutral', title: 'Dibanding harga jual terakhir', text: 'Belum ada penjualan ' + esc(kode) + ' yang tercatat, jadi belum ada pembanding.' });
+    }
+    if (rb && rb.vsAvgPct != null) {
+      notes.push({ tone: rb.vsAvgPct < 0 ? 'good' : 'neutral', title: 'Dibanding harga rata-rata Anda',
+        text: 'Harga sekarang ' + (rb.vsAvgPct < 0 ? 'di bawah' : 'di atas') + ' harga rata-rata beli (' + pxf(row.avg, ccy) + ') sebesar <strong class="' + cls(rb.vsAvgPct, 'IDR') + '">' + pct(rb.vsAvgPct) + '</strong>.' +
+          (rb.vsAvgPct < 0 ? ' Membeli lagi di harga ini akan menurunkan harga rata-rata Anda.' : ' Membeli lagi di harga ini akan menaikkan harga rata-rata Anda.') });
+    }
+    var ol = Insight.dividendOutlook(dvs, ymd(new Date()), 90);
+    var MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    if (!ol.count) {
+      notes.push({ tone: 'neutral', title: 'Riwayat dividen', text: 'Belum ada dividen ' + esc(kode) + ' yang tercatat. Catat dividen yang pernah diterima agar pola pembagiannya bisa dianalisis.' });
+    } else {
+      var pat = ol.months.slice().sort(function (a, b) { return a.month - b.month; }).map(function (x) {
+        return MONTHS[x.month - 1] + (x.routine ? ' (' + x.years.length + ' tahun)' : ' (1 tahun)');
+      }).join(', ');
+      var yieldTxt = price > 0 && ol.last12Dps > 0 ? ' Dividen per ' + (mk === 'CRYPTO' ? 'koin' : 'lembar') + ' 12 bulan terakhir ' + pxf(ol.last12Dps, ccy) + ' (sekitar ' + pct(ol.last12Dps / price * 100).replace('+', '') + ' dari harga sekarang).' : '';
+      notes.push({ tone: 'neutral', title: 'Pola pembagian dividen', text: 'Dari catatan Anda, dividen ' + esc(kode) + ' tercatat ' + ol.count + ' kali (terakhir ' + fmtDate(ol.last) + '), biasanya di bulan: ' + pat + '.' + yieldTxt });
+      if (ol.upcoming.length) {
+        ol.upcoming.forEach(function (u) {
+          notes.push({ tone: 'good', title: 'Dividen kemungkinan dalam ' + ol.windowDays + ' hari ke depan',
+            text: 'Biasanya cair sekitar <strong>' + MONTHS[u.month - 1] + '</strong> (perkiraan ' + fmtDate(u.nextDate) + ', ±' + u.daysAway + ' hari lagi), rata-rata ' + money(u.avgAmount, ccy) + ' dari posisi Anda' + (u.avgDps > 0 ? ' atau ' + pxf(u.avgDps, ccy) + ' per ' + (mk === 'CRYPTO' ? 'koin' : 'lembar') : '') + '. ' +
+              'Untuk ikut menerima, saham harus sudah dimiliki sebelum tanggal cum-date; cek jadwal resmi emiten karena tanggal sebenarnya bisa berbeda.' });
+        });
+      } else {
+        var nx = ol.months[0];
+        notes.push({ tone: 'neutral', title: 'Dividen berikutnya', text: 'Belum ada pola dividen dalam ' + ol.windowDays + ' hari ke depan. Pola terdekat: ' + MONTHS[nx.month - 1] + ' (perkiraan ' + fmtDate(nx.nextDate) + ', ±' + nx.daysAway + ' hari lagi).' });
+      }
+    }
+    html += '<section class="section"><div class="section-head"><h2>Info otomatis</h2><span class="note">Dihitung dari catatan Anda, bukan prediksi dan bukan saran investasi</span></div>' +
+      '<div class="notes">' + notes.map(function (n) {
+        return '<div class="note-card ' + n.tone + '"><h3>' + esc(n.title) + '</h3><p>' + n.text + '</p></div>';
+      }).join('') + '</div></section>';
+
+    // ---- riwayat ----
+    html += '<section class="section"><div class="section-head"><h2>Riwayat jual beli</h2><span class="note">' + trx.length + ' transaksi</span></div>';
+    html += trx.length ? '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Jenis</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Nilai</th><th class="num">Fee</th><th class="num">Profit / rugi</th><th></th></tr></thead><tbody>' +
+      trx.map(function (t) {
+        var pl = t.jenis === 'JUAL' ? per.ledger.perTrx[t.id] : null;
+        return '<tr><td>' + fmtDate(t.tanggal) + (t.catatan ? '<span class="sub muted" style="font-weight:500">' + esc(t.catatan) + '</span>' : '') + '</td>' +
+          '<td><span class="pill ' + (t.jenis === 'BELI' ? 'beli' : 'jual') + '">' + (t.jenis === 'BELI' ? 'Beli' : 'Jual') + '</span></td>' +
+          '<td class="num">' + qtyf(C.qtyOf(t), mk) + '</td><td class="num">' + pxf(C.num(t.harga), ccy) + '</td>' +
+          '<td class="num">' + money(C.qtyOf(t) * MK[mk].mult * C.num(t.harga), ccy) + '</td>' +
+          '<td class="num">' + (C.num(t.fee) ? money(t.fee, ccy) : '<span class="muted">–</span>') + '</td>' +
+          '<td class="num ' + (pl == null ? 'flat' : cls(pl, ccy)) + '">' + (pl == null ? '–' : moneySigned(pl, ccy)) + '</td>' +
+          '<td class="acts"><button class="btn ghost sm" data-act="edit-trx" data-id="' + esc(t.id) + '" type="button">Ubah</button></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="panel empty"><p>Belum ada transaksi.</p></div>';
+    html += '</section>';
+
+    html += '<section class="section"><div class="section-head"><h2>Riwayat ' + nounLower(mk) + '</h2><span class="note">' + dvs.length + ' catatan · total ' + money(divTotal, ccy) + '</span></div>';
+    html += dvs.length ? '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th class="num">Per ' + (mk === 'CRYPTO' ? 'koin' : 'lembar') + '</th><th class="num">Pajak</th><th class="num">Diterima</th><th></th></tr></thead><tbody>' +
+      dvs.map(function (x) {
+        return '<tr><td>' + fmtDate(x.tanggal) + '</td><td class="num">' + (C.num(x.dps) ? pxf(C.num(x.dps), ccy) : '<span class="muted">–</span>') + '</td>' +
+          '<td class="num">' + (C.num(x.pajak) ? C.num(x.pajak) + '%' : '<span class="muted">–</span>') + '</td><td class="num gain">' + money(x.jumlah, ccy) + '</td>' +
+          '<td class="acts"><button class="btn ghost sm" data-act="edit-div" data-id="' + esc(x.id) + '" type="button">Ubah</button></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="panel empty"><p>Belum ada ' + nounLower(mk) + ' tercatat.</p></div>';
+    return html + '</section>';
+  }
+
   // ---------- halaman: pengaturan ----------
   function viewPengaturan() {
     var st = S.settings, sheet = S.isSheet();
@@ -667,11 +805,11 @@
     return html + '</div>';
   }
 
-  var VIEWS = { dashboard: viewDashboard, transaksi: viewTransaksi, dividen: viewDividen, bulanan: viewBulanan, pengaturan: viewPengaturan };
+  var VIEWS = { emiten: viewEmiten, dashboard: viewDashboard, transaksi: viewTransaksi, dividen: viewDividen, bulanan: viewBulanan, pengaturan: viewPengaturan };
 
   // ---------- render ----------
   function renderNav() {
-    var navHtml = ROUTES.map(function (r) {
+    var navHtml = ROUTES.filter(function (r) { return !r.hidden; }).map(function (r) {
       return '<a href="#/' + r.id + '"' + (state.route === r.id ? ' aria-current="page"' : '') + '>' + ICONS[r.icon] + '<span>' + r.label + '</span></a>';
     }).join('');
     $('#nav').innerHTML = navHtml;
@@ -709,8 +847,9 @@
 
   function render() {
     var route = ROUTES.filter(function (r) { return r.id === state.route; })[0] || ROUTES[0];
-    $('#page-title').textContent = route.label;
-    document.title = route.label + ' · Porto';
+    var title = route.id === 'emiten' ? (state.arg.split(':')[1] || 'Emiten') : route.label;
+    $('#page-title').textContent = title;
+    document.title = title + ' · Porto';
     renderNav();
     renderMarkets(route);
     var gate = S.needLogin() && route.id !== 'pengaturan' && !S.data.transaksi.length && !S.data.dividen.length;
@@ -1138,6 +1277,7 @@
     'edit-trx': function (b) { openTrxForm(b.dataset.id); },
     'edit-div': function (b) { openDivForm(b.dataset.id); },
     'market': function (b) { setMarket(b.dataset.m); },
+    'set-profile': function (b) { S.setProfile(b.dataset.key, b.dataset.v); render(); },
     'del-trx': function (b) {
       var t = S.data.transaksi.filter(function (x) { return x.id === b.dataset.id; })[0];
       if (!t) return;
@@ -1327,7 +1467,9 @@
 
   // ---------- routing ----------
   function route() {
-    var id = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('?')[0];
+    var hp = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('?')[0].split('/');
+    var id = hp[0];
+    try { state.arg = decodeURIComponent(hp.slice(1).join('/')); } catch (e) { state.arg = ''; }
     state.route = VIEWS[id] ? id : 'dashboard';
     render();
     window.scrollTo(0, 0);

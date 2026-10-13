@@ -310,3 +310,25 @@ code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gain); box-shadow: 0 0 0 0 var(--gain); animation: livepulse 1.8s infinite; }
 @keyframes livepulse { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+
+/* Kartu posisi dan rincian emiten */
+a.tick { text-decoration: none; color: inherit; }
+a.tick:hover { background: var(--line-soft); }
+.status-line { margin-top: 8px; font-size: 15px; font-weight: 600; }
+.emlink { color: inherit; font-weight: 700; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.emlink:hover { text-decoration-color: currentColor; }
+.pill.prof-trading { background: #F6EBCF; color: #7A5600; }
+.pill.prof-investing { background: #DDF0E8; color: #0A5B3D; }
+@media (prefers-color-scheme: dark) { .pill.prof-trading { background: #3A2F12; color: #E0AC3A; } .pill.prof-investing { background: #12342A; color: #3FC590; } }
+.em-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 4px 0 16px; }
+.em-code { margin: 4px 0 2px; font-size: 34px; line-height: 1.1; }
+.seg { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.seg button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--petrol); color: #fff; border-color: var(--petrol); }
+.em-stats { padding: 6px 18px; margin-bottom: 8px; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+.note-card { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.note-card.good { border-left-color: var(--gain); }
+.note-card.warn { border-left-color: var(--dividend); }
+.note-card h3 { margin: 0 0 4px; font-size: 14px; }
+.note-card p { margin: 0; font-size: 14px; line-height: 1.55; }
