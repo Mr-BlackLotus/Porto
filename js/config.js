@@ -1,9 +1,8 @@
 /*
- * Konfigurasi publik (bukan rahasia). Isi clientId dengan OAuth Client ID dari Google Cloud
- * supaya tombol "Masuk dengan Google" langsung bisa diklik tanpa mengisi apa pun di Pengaturan.
- * sheetId adalah ID spreadsheet Porto; akses tetap diatur lewat Bagikan di Drive.
+ * Konfigurasi publik (bukan rahasia). Isi clientId dengan OAuth Client ID dari Google Cloud.
+ * Pengguna tidak mengisi apa pun: cukup klik "Masuk dengan Google". Spreadsheet "Porto"
+ * dicari atau dibuat otomatis di Drive akun yang login.
  */
 window.PORTO_CONFIG = {
-  clientId: '',
-  sheetId: '1mR66m3m2MVO-djtY32PQRITLlfTJ3wJwxqG7YARgfCo'
+  clientId: ''
 };

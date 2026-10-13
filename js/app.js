@@ -224,7 +224,7 @@
     }
     if (!S.isSheet()) {
       html += banner('<strong>Mode lokal.</strong> Data hanya tersimpan di browser ini dan harga harian tidak diperbarui otomatis. ' +
-        '<a href="#/pengaturan">Masuk dengan Google</a> untuk menyimpan data di Drive Anda dan mengaktifkan harga otomatis.');
+        (S.googleReady() ? '<button class="linkbtn" data-act="google-login" type="button">Masuk dengan Google</button>' : '<a href="#/pengaturan">Pengaturan</a>') + ' untuk menyimpan data di Drive Anda dan mengaktifkan harga otomatis.');
     }
     if (m.needFx) {
       html += banner('<strong>Kurs USD ke Rupiah belum tersedia.</strong> Pasar yang dicatat dalam dolar belum ikut dihitung di tampilan Semua. ' +
@@ -572,26 +572,16 @@
     var html = '<div>';
 
     var gm = S.mode() === 'google', am = S.mode() === 'apps', g = st.google;
-    var origin = location.protocol === 'file:' ? '' : location.origin;
-    html += '<section class="settings-block"><div><h2>Masuk dengan Google</h2><p>Login dengan akun Gmail Anda. Siapa pun yang diberi akses ke spreadsheet lewat Bagikan di Drive bisa masuk dengan akunnya sendiri. Tanpa token yang dibagikan.</p></div><div>' +
+    var ready = S.googleReady();
+    html += '<section class="settings-block"><div><h2>Masuk dengan Google</h2><p>Login dengan akun Gmail Anda. Spreadsheet “Porto” dibuat otomatis di Google Drive akun itu, dan data tiap akun terpisah.</p></div><div>' +
       '<div class="banner" style="margin-bottom:16px">' + (gm
-        ? '<div><strong>Tersambung' + (g.email ? ' sebagai ' + esc(g.email) : '') + '.</strong> ' + (S.needLogin() ? 'Sesi login habis, klik Masuk dengan Google.' : 'Data dibaca dan ditulis ke spreadsheet langsung dari browser ini.') + '</div>'
-        : '<div><strong>' + (am ? 'Sedang memakai Apps Script.' : 'Belum tersambung.') + '</strong> Isi Client ID dan tautan spreadsheet, lalu masuk.</div>') + '</div>' +
-      (location.protocol === 'file:' ? '<div class="banner err" style="margin-bottom:16px"><div>Login Google tidak berjalan dari file lokal. Buka lewat alamat GitHub Pages Anda.</div></div>' : '') +
-      '<form id="form-google" class="form-grid" autocomplete="off">' +
-      '<div class="field wide"><label for="g-client">Client ID Google</label><input id="g-client" name="clientId" type="text" placeholder="123456-abc.apps.googleusercontent.com" value="' + esc(S.googleCfg().clientId) + '"><span class="hint">Dari Google Cloud Console (langkah di bawah). Client ID bukan rahasia.</span></div>' +
-      '<div class="field wide"><label for="g-sheet">Tautan atau ID spreadsheet</label><input id="g-sheet" name="sheet" type="text" placeholder="https://docs.google.com/spreadsheets/d/…" value="' + esc(S.googleCfg().sheetId) + '"></div>' +
-      '<div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" type="submit">' + (gm ? 'Simpan dan masuk ulang' : 'Masuk dengan Google') + '</button>' +
-      (gm ? '<button class="btn outline" type="button" data-act="reload">Muat ulang dari Sheet</button><button class="btn danger" type="button" data-act="google-logout">Putuskan</button>' : '') +
-      '</div></form>' +
-      '<details style="margin-top:16px"><summary style="cursor:pointer;font-weight:600">Cara mendapatkan Client ID (sekali saja)</summary><ol style="margin:10px 0 0 18px;line-height:1.6">' +
-      '<li>Buka <strong>console.cloud.google.com</strong>, buat project baru.</li>' +
-      '<li><strong>APIs &amp; Services → Library</strong>, aktifkan <strong>Google Sheets API</strong>.</li>' +
-      '<li><strong>OAuth consent screen</strong>: tipe External, isi nama aplikasi dan email. Biarkan status Testing, lalu tambahkan semua akun Gmail Anda di <strong>Test users</strong>.</li>' +
-      '<li><strong>Credentials → Create credentials → OAuth client ID</strong>, tipe <strong>Web application</strong>.</li>' +
-      '<li>Di <strong>Authorized JavaScript origins</strong> isi <code>' + esc(origin || 'https://<username>.github.io') + '</code> (tanpa garis miring di akhir).</li>' +
-      '<li>Salin Client ID ke kolom di atas. Google akan menampilkan peringatan “aplikasi belum diverifikasi”; itu normal untuk aplikasi pribadi, pilih Lanjutkan.</li></ol>' +
-      '<p class="muted" style="margin-top:8px;font-size:13px">Izin yang diminta adalah akses ke spreadsheet (cakupan luas: semua spreadsheet di akun yang login) dan alamat email. Aplikasi hanya membuka spreadsheet yang Anda tentukan. Token login berlaku sekitar satu jam; setelah itu klik Masuk lagi.</p></details>' +
+        ? '<div><strong>Tersambung' + (g.email ? ' sebagai ' + esc(g.email) : '') + '.</strong> ' + (S.needLogin() ? 'Sesi login habis, klik Masuk dengan Google.' : 'Data dibaca dan ditulis ke spreadsheet “Porto” di Drive akun ini.') + '</div>'
+        : ready ? '<div><strong>' + (am ? 'Sedang memakai Apps Script.' : 'Belum masuk.') + '</strong> Klik tombol di bawah.</div>'
+          : '<div><strong>Login Google belum diaktifkan oleh pemilik aplikasi.</strong> Client ID belum diisi di <code>js/config.js</code>.</div>') + '</div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+      (ready ? '<button class="btn primary" type="button" data-act="google-login">' + (gm && !S.needLogin() ? 'Masuk ulang / muat ulang' : 'Masuk dengan Google') + '</button>' : '') +
+      (gm ? '<button class="btn danger" type="button" data-act="google-logout">Keluar</button>' : '') + '</div>' +
+      '<p class="muted" style="margin-top:12px;font-size:13px">Aplikasi hanya bisa mengakses file yang dibuatnya sendiri, bukan seluruh Drive Anda. Akun harus sudah terdaftar sebagai pengguna uji di Google Cloud pemilik aplikasi. Google akan menampilkan peringatan “aplikasi belum diverifikasi”; pilih Lanjutkan. Login berlaku sekitar satu jam, setelah itu klik masuk lagi.</p>' +
       (gm && localCount ? '<div class="row"><button class="btn outline" type="button" data-act="upload-local">Unggah ' + local.transaksi.length + ' transaksi dan ' + local.dividen.length + ' dividen dari browser ini ke Sheet</button></div><p class="muted" style="margin-top:8px;font-size:13px">Ini mengganti seluruh isi tab transaksi dan dividen di Sheet.</p>' : '') +
       '</div></section>';
 
@@ -1130,7 +1120,17 @@
     },
     'price': function (b) { openPriceForm(b.dataset.key); },
     'reload': function (b) { reloadFromSheet(b); },
-    'google-login': function (b) { reloadFromSheet(b); },
+    'google-login': function (b) {
+      if (S.mode() === 'google') return reloadFromSheet(b);
+      guard(b, function () {
+        return S.googleConnect().then(function () {
+          state.loadError = '';
+          toast('Masuk sebagai ' + (S.email() || 'akun Google'));
+          render();
+          return refreshPrices(false);
+        });
+      });
+    },
     'google-logout': function () {
       confirmDialog('Putuskan Google?', 'Aplikasi keluar dari akun Google dan kembali ke mode lokal. Data di spreadsheet tidak dihapus.', 'Putuskan').then(function (ok) {
         if (!ok) return;
@@ -1240,24 +1240,6 @@
       Promise.resolve().then(dlg._onSubmit).then(function () { closeDialog(); }).catch(function (err) {
         dialogError(err.message || String(err));
       }).then(function () { ok.disabled = false; });
-      return;
-    }
-    if (form.id === 'form-google') {
-      e.preventDefault();
-      var gd = new FormData(form);
-      var cid = String(gd.get('clientId') || '').trim();
-      var sh = String(gd.get('sheet') || '').trim();
-      if (location.protocol === 'file:') return toast('Login Google tidak berjalan dari file lokal. Buka lewat GitHub Pages.', 'err');
-      if (!/^[\w-]+\.apps\.googleusercontent\.com$/.test(cid)) return toast('Client ID tidak valid. Bentuknya xxxx.apps.googleusercontent.com', 'err');
-      if (!sh) return toast('Isi tautan atau ID spreadsheet.', 'err');
-      guard(form.querySelector('button[type=submit]'), function () {
-        return S.googleConnect(cid, sh).then(function () {
-          state.loadError = '';
-          toast('Masuk sebagai ' + (S.email() || 'akun Google'));
-          render();
-          return refreshPrices(false);
-        });
-      });
       return;
     }
     if (form.id === 'form-conn') {

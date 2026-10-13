@@ -16,7 +16,9 @@
   var API = 'https://sheets.googleapis.com/v4/spreadsheets/';
   var USERINFO = 'https://www.googleapis.com/oauth2/v3/userinfo';
   var BINANCE = 'https://data-api.binance.vision/api/v3/ticker/24hr';
-  var SCOPE = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email';
+  var SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
+  var DRIVE = 'https://www.googleapis.com/drive/v3/files';
+  var SHEET_TITLE = 'Porto';
   var MARKETS = ['ID', 'US', 'CRYPTO'];
   var KINDS = ['transaksi', 'dividen'];
   var PRICE_TAB = 'Harga';
@@ -67,7 +69,7 @@
     try { raw = JSON.stringify(body || {}); } catch (e) { raw = ''; }
     var msg = body && body.error && body.error.message ? String(body.error.message) : '';
     if (/has not been used|SERVICE_DISABLED|accessNotConfigured|is disabled/i.test(raw)) {
-      return 'Google Sheets API belum diaktifkan di project Google Cloud Anda. Aktifkan lalu coba lagi.';
+      return 'Google Sheets API dan Google Drive API belum diaktifkan di project Google Cloud Anda. Aktifkan keduanya lalu coba lagi.';
     }
     if (status === 403) return 'Akun ini tidak punya akses ke spreadsheet. Bagikan spreadsheet ke email yang dipakai login sebagai Editor.';
     if (status === 404) return 'Spreadsheet tidak ditemukan. Periksa URL atau ID spreadsheet.';
@@ -164,6 +166,47 @@
         if (t && st.oauth2 && st.oauth2.revoke) { try { st.oauth2.revoke(t, function () {}); } catch (e) { /* abaikan */ } }
       }
     };
+  }
+
+  // ---------------------------------------------------------------- cari / buat spreadsheet
+  /**
+   * Dengan izin drive.file aplikasi hanya melihat file yang dibuatnya sendiri, jadi cukup cari
+   * spreadsheet "Porto" milik akun yang login; bila belum ada, buat baru lengkap dengan tab-nya.
+   * opts: { auth, fetch, preferred } preferred = ID tersimpan sebelumnya (dicoba lebih dulu).
+   */
+  function locateSheet(opts) {
+    var auth = opts.auth;
+    var doFetch = opts.fetch || function (u, o) { return fetch(u, o); };
+    function call(method, url, body) {
+      return auth.ensure().then(function (token) {
+        var o = { method: method, headers: { Authorization: 'Bearer ' + token } };
+        if (body !== undefined) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
+        return doFetch(url, o);
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (!r.ok) throw new Error(humanError(r.status, j));
+          return j;
+        });
+      });
+    }
+    var q = "name = '" + SHEET_TITLE + "' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
+    return call('GET', DRIVE + '?q=' + enc(q) + '&orderBy=createdTime&pageSize=10&fields=' + enc('files(id,name)')).then(function (j) {
+      var files = (j && j.files) || [];
+      if (files.length) {
+        var pref = files.filter(function (f) { return f.id === opts.preferred; })[0];
+        return (pref || files[0]).id;
+      }
+      var sheets = [];
+      MARKETS.forEach(function (p) { KINDS.forEach(function (k) { sheets.push({ properties: { title: TAB[p][k] } }); }); });
+      sheets.push({ properties: { title: PRICE_TAB } });
+      return call('POST', 'https://sheets.googleapis.com/v4/spreadsheets', { properties: { title: SHEET_TITLE }, sheets: sheets })
+        .then(function (c) {
+          var data = [];
+          MARKETS.forEach(function (p) { KINDS.forEach(function (k) { data.push({ range: a1(TAB[p][k], 'A1:H1'), values: [headers(p, k)] }); }); });
+          return call('POST', 'https://sheets.googleapis.com/v4/spreadsheets/' + c.spreadsheetId + '/values:batchUpdate', { valueInputOption: 'RAW', data: data })
+            .then(function () { return c.spreadsheetId; });
+        });
+    });
   }
 
   // ---------------------------------------------------------------- klien Sheets
@@ -454,6 +497,6 @@
 
   return {
     SCOPE: SCOPE, TAB: TAB, PRICE_TAB: PRICE_TAB, headers: headers,
-    parseSheetId: parseSheetId, loadGis: loadGis, createAuth: createAuth, createClient: createClient
+    locateSheet: locateSheet, parseSheetId: parseSheetId, loadGis: loadGis, createAuth: createAuth, createClient: createClient
   };
 }));

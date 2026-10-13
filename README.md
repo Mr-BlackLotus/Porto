@@ -29,17 +29,19 @@ Aplikasi web untuk mencatat jual beli, dividen, dan memantau profit per bulan. T
 
 Repositori boleh publik: URL Web App dan token tidak ada di kode, hanya disimpan di browser Anda.
 
-## Masuk dengan Google (disarankan)
+## Masuk dengan Google
 
-Aplikasi membaca dan menulis spreadsheet langsung dari browser Anda memakai login Google. Tidak ada token yang dibagikan: siapa pun yang Anda beri akses lewat **Bagikan** di Drive bisa masuk dengan akun Gmail-nya sendiri.
+Pengguna cukup klik **Masuk dengan Google**. Tidak ada yang perlu diisi: spreadsheet "Porto" dicari di Google Drive akun yang login, dan dibuat otomatis (lengkap dengan tab dan judul kolom) bila belum ada. Data tiap akun terpisah, dan aplikasi hanya bisa mengakses file yang dibuatnya sendiri (izin `drive.file`), bukan seluruh Drive.
+
+Pemilik aplikasi menyiapkan sekali di Google Cloud:
 
 1. Buka [console.cloud.google.com](https://console.cloud.google.com), buat project.
-2. **APIs & Services → Library**: aktifkan **Google Sheets API**.
-3. **OAuth consent screen**: tipe External, status Testing, tambahkan semua akun Gmail Anda sebagai **Test users**.
+2. **APIs & Services → Library**: aktifkan **Google Sheets API** dan **Google Drive API**.
+3. **OAuth consent screen**: tipe External, status Testing, tambahkan semua akun Gmail yang boleh masuk sebagai **Test users**.
 4. **Credentials → OAuth client ID → Web application**. Di **Authorized JavaScript origins** isi `https://<username>.github.io` (tanpa garis miring).
-5. Isi `clientId` di `js/config.js` (Client ID bukan rahasia) lalu commit. Setelah itu siapa pun yang membuka situs cukup klik **Masuk dengan Google**. Alternatif tanpa edit file: **Pengaturan → Masuk dengan Google**, tempel Client ID dan tautan spreadsheet.
+5. Salin Client ID ke `clientId` di `js/config.js` lalu commit. Client ID bukan rahasia.
 
-Catatan: Google menampilkan peringatan "aplikasi belum diverifikasi" untuk aplikasi pribadi, pilih Lanjutkan. Izin yang diminta (`spreadsheets`) berlaku untuk semua spreadsheet di akun yang login, walau aplikasi hanya membuka satu. Token berlaku sekitar satu jam; setelah itu klik **Masuk dengan Google** lagi. Tab data dibuat otomatis, dengan nama yang sama seperti versi Apps Script.
+Google menampilkan peringatan "aplikasi belum diverifikasi" untuk aplikasi pribadi; pilih Lanjutkan. Login berlaku sekitar satu jam; setelah itu klik masuk lagi. Tab memakai nama yang sama dengan versi Apps Script.
 
 ### Harga terbaru
 
@@ -107,6 +109,7 @@ node tests/calc.test.js
 node tests/appsscript.test.js
 node tests/gsheets.test.js
 node tests/live.test.js
+node tests/locate.test.js
 ```
 
 ## Catatan

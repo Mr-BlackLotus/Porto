@@ -65,7 +65,7 @@
     out.google = Object.assign(clone(DEFAULTS.google), s.google || {});
     if (['google', 'apps', 'local'].indexOf(out.source) < 0) {
       var cfg = root.PORTO_CONFIG || {};
-      out.source = (out.url && /^https:\/\//.test(out.url)) ? 'apps' : (cfg.clientId && cfg.sheetId ? 'google' : '');
+      out.source = (out.url && /^https:\/\//.test(out.url)) ? 'apps' : (cfg.clientId ? 'google' : '');
     }
     var fee = clone(DEFAULTS.fee);
     MARKETS.forEach(function (m) {
@@ -109,40 +109,61 @@
   /** Client ID dan sheet: dari Pengaturan, bila kosong dari js/config.js. */
   function gcfg() {
     var c = root.PORTO_CONFIG || {}, g = settings.google || {};
-    return { clientId: g.clientId || c.clientId || '', sheetId: g.sheetId || c.sheetId || '', email: g.email || '' };
+    return { clientId: c.clientId || g.clientId || '', sheetId: g.sheetId || '', email: g.email || '' };
   }
   function mode() {
     var g = gcfg();
-    if (settings.source === 'google' && g.clientId && g.sheetId) return 'google';
+    if (settings.source === 'google' && g.clientId) return 'google';
     if (settings.source === 'apps' && settings.url && /^https:\/\//.test(settings.url)) return 'apps';
     return 'lokal';
   }
   function isSheet() { return mode() !== 'lokal'; }
 
-  // ---- Google: auth dan klien dibuat ulang bila Client ID atau Sheet berubah ----
-  var gCache = { key: '', auth: null, client: null };
+  // ---- Google: auth dibuat ulang bila Client ID berubah; spreadsheet dicari/dibuat setelah login ----
+  var gCache = { key: '', auth: null, client: null, pending: null };
   function google() {
     var g = gcfg();
-    var key = g.clientId + '|' + g.sheetId;
-    if (gCache.key !== key) {
+    if (gCache.key !== g.clientId) {
       if (gCache.auth) gCache.auth.signOut();
-      var auth = root.GSheets.createAuth({ clientId: g.clientId, hint: function () { return settings.google.email; } });
-      gCache = { key: key, auth: auth, client: root.GSheets.createClient({ sheetId: g.sheetId, auth: auth }) };
+      gCache = {
+        key: g.clientId, client: null, pending: null,
+        auth: root.GSheets.createAuth({ clientId: g.clientId, hint: function () { return settings.google.email; } })
+      };
     }
     return gCache;
+  }
+  function resetGoogle() {
+    if (gCache.auth) gCache.auth.signOut();
+    gCache = { key: '', auth: null, client: null, pending: null };
+  }
+  /** Klien Sheets untuk akun yang login: cari spreadsheet "Porto" di Drive-nya, atau buat baru. */
+  function gclient() {
+    var c = google();
+    if (c.client) return Promise.resolve(c.client);
+    if (!c.pending) {
+      c.pending = root.GSheets.locateSheet({ auth: c.auth, preferred: settings.google.sheetId }).then(function (id) {
+        if (id !== settings.google.sheetId) {
+          settings.google = Object.assign({}, settings.google, { sheetId: id });
+          save(KEY_SETTINGS, settings);
+        }
+        c.client = root.GSheets.createClient({ sheetId: id, auth: c.auth });
+        return c.client;
+      }).catch(function (e) { c.pending = null; throw e; });
+    }
+    return c.pending;
   }
 
   /** Satu antarmuka untuk dua backend. */
   function remote() {
     if (mode() === 'google') {
-      var c = google().client;
+      var use = function (fn) { return gclient().then(fn); };
       return {
-        all: function () { return c.readAll(); },
-        add: function (kind, row) { return c.append(kind, row); },
-        update: function (kind, row) { return c.update(kind, row); },
-        remove: function (kind, id, pasar) { return c.remove(kind, id, pasar); },
-        replaceAll: function (n) { return c.replaceAll(n); },
-        prices: function (keys) { return c.prices(keys); }
+        all: function () { return use(function (c) { return c.readAll(); }); },
+        add: function (kind, row) { return use(function (c) { return c.append(kind, row); }); },
+        update: function (kind, row) { return use(function (c) { return c.update(kind, row); }); },
+        remove: function (kind, id, pasar) { return use(function (c) { return c.remove(kind, id, pasar); }); },
+        replaceAll: function (n) { return use(function (c) { return c.replaceAll(n); }); },
+        prices: function (keys) { return use(function (c) { return c.prices(keys); }); }
       };
     }
     return {
@@ -238,7 +259,9 @@
       if (mode() !== 'google') return Promise.reject(new Error('Mode Google belum diatur.'));
       return google().auth.signIn().then(function (email) {
         if (email && email !== settings.google.email) {
-          Store.saveSettings({ google: Object.assign({}, settings.google, { email: email }) });
+          // akun berbeda: spreadsheet dan salinan data akun sebelumnya tidak dipakai
+          if (settings.google.email) { data = normalizeData(EMPTY); persist(); gCache.client = null; gCache.pending = null; Store.saveSettings({ google: { clientId: '', sheetId: '', email: email } }); }
+          else Store.saveSettings({ google: Object.assign({}, settings.google, { email: email }) });
         }
         return email;
       });
@@ -247,16 +270,14 @@
       if (gCache.auth) gCache.auth.signOut();
     },
 
-    /** Sambungkan lewat login Google; bila gagal, pengaturan dan data lama dikembalikan. */
-    googleConnect: function (clientId, sheetInput) {
-      var id = root.GSheets.parseSheetId(sheetInput);
-      if (!id) return Promise.reject(new Error('Tautan atau ID spreadsheet tidak dikenali.'));
+    /** Mulai mode Google (Client ID dari js/config.js); bila gagal, pengaturan dan data lama dikembalikan. */
+    googleConnect: function () {
+      if (!gcfg().clientId) return Promise.reject(new Error('Client ID Google belum diisi di js/config.js.'));
       var prevSettings = clone(settings);
       var prevData = data;
-      Store.saveSettings({ source: 'google', google: { clientId: clientId, sheetId: id, email: '' } });
+      Store.saveSettings({ source: 'google' });
       return Store.signIn().then(function () { return Store.reload(); }).catch(function (e) {
-        Store.signOut();
-        gCache = { key: '', auth: null, client: null };
+        resetGoogle();
         settings = prevSettings;
         save(KEY_SETTINGS, settings);
         data = prevData;
@@ -283,8 +304,7 @@
     },
 
     disconnect: function () {
-      Store.signOut();
-      gCache = { key: '', auth: null, client: null };
+      resetGoogle();
       Store.saveSettings({ source: 'local', url: '', token: '', google: { clientId: '', sheetId: '', email: '' } });
       data = normalizeData(load(KEY_DATA, EMPTY));
     },
