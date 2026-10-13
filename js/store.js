@@ -240,7 +240,7 @@
       }
       data = normalizeData(load(KEY_CACHE, EMPTY));
       // Token Google hanya bisa diminta lewat klik pengguna, jadi tampilkan cache dulu.
-      if (mode() === 'google') return Promise.resolve({ mode: 'google', needLogin: true });
+      if (mode() === 'google' && Store.needLogin()) return Promise.resolve({ mode: 'google', needLogin: true });
       return Store.reload();
     },
 
@@ -255,6 +255,13 @@
     /** Google: belum login (atau token habis) sehingga perlu klik "Masuk dengan Google". */
     needLogin: function () { return mode() === 'google' && !google().auth.token(); },
     email: function () { return settings.google.email || ''; },
+    /** Sisa masa berlaku login Google (ms). */
+    sessionLeft: function () { return mode() === 'google' ? google().auth.remaining() : 0; },
+    /** Perpanjang sesi diam-diam; bila gagal (misalnya pop-up diblokir), pengguna cukup klik Masuk. */
+    renewSession: function () {
+      if (mode() !== 'google') return Promise.resolve();
+      return google().auth.signIn();
+    },
 
     /** Harus dipanggil dari klik pengguna. Mengembalikan email akun yang masuk. */
     signIn: function () {

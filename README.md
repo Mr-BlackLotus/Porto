@@ -5,7 +5,8 @@ Aplikasi web untuk mencatat jual beli, dividen, dan memantau profit per bulan. T
 ## Fitur
 
 - **Dashboard**: total hasil investasi, nilai portofolio, profit belum terealisasi, profit jual, dividen/reward, perubahan harga hari ini, grafik profit 12 bulan terakhir, alokasi.
-- **Rincian emiten**: klik kode saham/koin (misalnya BBCA) untuk melihat riwayat jual beli, riwayat dividen, total profit, profil Trading/Investing, dan info otomatis: selisih harga sekarang dengan harga jual terakhir dan harga rata-rata, serta pola bulan pembagian dividen dari catatan Anda (peringatan bila perkiraan jatuh dalam 90 hari). Info ini berbasis aturan sederhana, bukan AI dan bukan saran investasi. Profil Trading/Investing tersimpan di browser.
+- **Rincian emiten**: klik kode saham/koin (misalnya BBCA) untuk melihat riwayat jual beli, riwayat dividen, total profit, profil Trading/Investing, dan info otomatis: selisih harga sekarang dengan harga jual terakhir dan harga rata-rata, serta pola bulan pembagian dividen dari catatan Anda (peringatan bila perkiraan jatuh dalam 90 hari). Untuk emiten yang ada di `js/dividends.js` (saat ini BBCA), info dividen memakai data resmi: dividen terakhir (jenis, cum date, tanggal bayar), total 12 bulan dan imbal dividennya terhadap harga sekarang dan harga rata-rata Anda, jadwal atau rencana berikutnya, jendela beli 3 bulan sebelum cum date, serta penilaian ringkas (Layak dipertimbangkan / Netral / Tunggu koreksi) dari jendela beli, posisi di rentang 52 minggu, dan harga jual terakhir. Info ini berbasis aturan sederhana, bukan AI dan bukan saran investasi.
+- **Trading & Investing**: halaman tersendiri dengan tab Semua / Trading / Investing / Belum diatur. Pilih tiap emiten masuk Trading atau Investing, lengkap dengan detail alokasi porsi (persen dari portofolio, modal, naik/turun vs modal, porsi per pasar, emiten terbesar). Profil tersimpan di browser.
 - **Pasar terpisah**: pilih Semua, Saham Indonesia, Saham US, atau Crypto di bagian atas. Satuan menyesuaikan: lot (1 lot = 100 lembar) untuk saham Indonesia, lembar pecahan untuk saham US, koin pecahan untuk crypto. Saham US dalam dolar, crypto dalam Rupiah atau dolar (pilihan Anda).
 - **Transaksi**: catat beli dan jual. Profit tiap penjualan dihitung otomatis dengan metode harga rata-rata. Penjualan yang melebihi kepemilikan ditolak.
 - **Dividen / reward**: per aset, dengan pajak. Ringkasan per aset dan per tahun.
@@ -13,6 +14,16 @@ Aplikasi web untuk mencatat jual beli, dividen, dan memantau profit per bulan. T
 - **Harga harian**: saham Indonesia, saham US, dan crypto diperbarui otomatis: crypto dari Binance, saham dari GOOGLEFINANCE (login Google), atau Yahoo Finance bila memakai Apps Script. Termasuk kurs USD ke Rupiah. Bila suatu kode tidak ada, isi harga manual.
 - **Catat lewat chat**: tulis ke Claude “beli BBCA 10 lot harga 9000”, catatan langsung masuk ke tab yang tepat di Sheet.
 - Ekspor/impor cadangan (JSON), ekspor CSV, tampilan gelap otomatis, nyaman di ponsel.
+
+## Data dividen resmi
+
+`js/dividends.js` berisi jadwal dan nominal dividen per emiten yang dihimpun dari pemberitaan pengumuman resmi (bukan umpan data langsung). Tambah emiten dengan mengikuti format BBCA, atau minta Claude menambahkannya. Cek tanggal asli di keterbukaan informasi emiten/IDX sebelum bertransaksi. Emiten tanpa data resmi memakai pola dari dividen yang Anda catat sendiri.
+
+Valuasi ringkas (tertinggi/terendah 52 minggu, P/E, EPS) diambil dari `GOOGLEFINANCE` di tab Harga dan bisa kosong untuk sebagian emiten Indonesia. Aliran broker (smart money), berita, dan target analis tidak tersedia otomatis.
+
+## Login tidak mudah keluar
+
+Token Google berlaku sekitar satu jam dan tidak bisa diperpanjang tanpa server. Aplikasi menyimpan token di browser sehingga muat ulang tidak meminta login lagi, memperpanjangnya otomatis menjelang habis, dan memperpanjang saat klik berikutnya bila perpanjangan otomatis diblokir browser. Bila browser memblokir pop-up Google, izinkan pop-up untuk situs ini.
 
 ## Cara menghitung
 
@@ -103,6 +114,9 @@ Buka `index.html` (atau situs Pages) lalu pakai **Muat data contoh** di Pengatur
 
 ## Pengembangan
 
+Setiap kali menerbitkan perubahan, naikkan nomor versi pada URL aset di `index.html` (`?v=`), konstanta `BUILD` di `index.html`, dan `version.json`. Browser yang masih memegang salinan lama akan memuat ulang sendiri sekali.
+
+
 Tanpa proses build. Logika hitung ada di `js/calc.js`, backend di `apps-script/Code.gs`. Keduanya punya tes:
 
 ```
@@ -112,6 +126,7 @@ node tests/gsheets.test.js
 node tests/live.test.js
 node tests/locate.test.js
 node tests/insight.test.js
+node tests/auth.test.js
 ```
 
 ## Catatan

@@ -22,6 +22,7 @@
   var MARKETS = ['ID', 'US', 'CRYPTO'];
   var KINDS = ['transaksi', 'dividen'];
   var PRICE_TAB = 'Harga';
+  var EXTRA = ['high52', 'low52', 'pe', 'eps'];
 
   var TAB = {
     ID: { transaksi: 'ID Transaksi', dividen: 'ID Dividen' },
@@ -103,6 +104,25 @@
     var now = opts.now || function () { return Date.now(); };
     var doFetch = opts.fetch || function (u, o) { return fetch(u, o); };
     var st = { token: null, exp: 0, client: null, email: '' };
+    var inflight = null;
+    var KEY = 'porto.auth.v1';
+    var store = opts.storage !== undefined ? opts.storage : (typeof localStorage !== 'undefined' ? localStorage : null);
+    function persist() {
+      if (!store) return;
+      try {
+        if (st.token) store.setItem(KEY, JSON.stringify({ t: st.token, e: st.exp, c: opts.clientId }));
+        else store.removeItem(KEY);
+      } catch (e) { /* penyimpanan diblokir */ }
+    }
+    // Token yang masih berlaku dipulihkan agar muat ulang halaman tidak memaksa login ulang.
+    (function restore() {
+      if (!store) return;
+      try {
+        var v = JSON.parse(store.getItem(KEY) || 'null');
+        if (v && v.t && v.c === opts.clientId && v.e > now() + 30000) { st.token = v.t; st.exp = v.e; }
+        else if (v) store.removeItem(KEY);
+      } catch (e) { /* abaikan */ }
+    }());
 
     function client() {
       return (opts.loadGis || loadGis)().then(function (oauth2) {
@@ -120,6 +140,12 @@
     }
 
     function signIn() {
+      if (inflight) return inflight;
+      inflight = signInOnce().then(function (t) { inflight = null; return t; }, function (e) { inflight = null; throw e; });
+      return inflight;
+    }
+
+    function signInOnce() {
       return client().then(function (c) {
         return new Promise(function (resolve, reject) {
           c.callback = function (resp) {
@@ -130,6 +156,7 @@
             }
             st.token = resp.access_token;
             st.exp = now() + (Number(resp.expires_in) || 3600) * 1000 - 60000;
+            persist();
             resolve(st.token);
           };
           c.error_callback = function (err) {
@@ -153,16 +180,18 @@
 
     return {
       token: function () { return st.token && now() < st.exp ? st.token : null; },
+      /** Sisa waktu token dalam milidetik (0 bila tidak ada). */
+      remaining: function () { return st.token ? Math.max(0, st.exp - now()) : 0; },
       email: function () { return st.email; },
       ensure: function () {
         if (st.token && now() < st.exp) return Promise.resolve(st.token);
         return signIn();
       },
       signIn: function () { return signIn().then(function () { return fetchEmail(); }); },
-      invalidate: function () { st.token = null; st.exp = 0; },
+      invalidate: function () { st.token = null; st.exp = 0; persist(); },
       signOut: function () {
         var t = st.token;
-        st.token = null; st.exp = 0; st.email = '';
+        st.token = null; st.exp = 0; st.email = ''; persist();
         if (t && st.oauth2 && st.oauth2.revoke) { try { st.oauth2.revoke(t, function () {}); } catch (e) { /* abaikan */ } }
       }
     };
@@ -419,15 +448,18 @@
 
     function writeFormulas(rows, sep) {
       var values = rows.map(function (r) {
-        return [r.key, '=GOOGLEFINANCE("' + r.sym + '")', '=GOOGLEFINANCE("' + r.sym + '"' + sep + '"closeyest")'];
+        var row = [r.key, '=GOOGLEFINANCE("' + r.sym + '")', '=GOOGLEFINANCE("' + r.sym + '"' + sep + '"closeyest")'];
+        // ringkasan valuasi untuk saham: tertinggi/terendah 52 minggu, P/E, EPS (bisa kosong untuk sebagian emiten)
+        EXTRA.forEach(function (a) { row.push(r.stock ? '=GOOGLEFINANCE("' + r.sym + '"' + sep + '"' + a + '")' : ''); });
+        return row;
       });
-      return req('POST', base + '/values:batchClear', { ranges: [a1(PRICE_TAB, 'A2:C')] }).then(function () {
-        return req('PUT', base + '/values/' + enc(a1(PRICE_TAB, 'A2:C' + (rows.length + 1))) + '?valueInputOption=USER_ENTERED', { values: values });
+      return req('POST', base + '/values:batchClear', { ranges: [a1(PRICE_TAB, 'A2:G')] }).then(function () {
+        return req('PUT', base + '/values/' + enc(a1(PRICE_TAB, 'A2:G' + (rows.length + 1))) + '?valueInputOption=USER_ENTERED', { values: values });
       });
     }
 
     function readFormulas(rows) {
-      return req('GET', base + '/values/' + enc(a1(PRICE_TAB, 'A2:C' + (rows.length + 1))) + '?valueRenderOption=UNFORMATTED_VALUE').then(function (j) {
+      return req('GET', base + '/values/' + enc(a1(PRICE_TAB, 'A2:G' + (rows.length + 1))) + '?valueRenderOption=UNFORMATTED_VALUE').then(function (j) {
         return (j && j.values) || [];
       });
     }
@@ -448,7 +480,7 @@
       var seen = {};
       var rows = [{ key: 'FX:USDIDR', sym: 'CURRENCY:USDIDR' }];
       keys.forEach(function (k) {
-        if (!seen[k]) { seen[k] = 1; rows.push({ key: k, sym: gfSymbol(k) }); }
+        if (!seen[k]) { seen[k] = 1; rows.push({ key: k, sym: gfSymbol(k), stock: k.indexOf('CRYPTO:') !== 0 }); }
       });
       return meta().then(function (m) { return PRICE_TAB in m ? m : ensureTabs(); })
         .then(function () { return writeFormulas(rows, ','); })
@@ -466,7 +498,13 @@
             var price = cellState(a[1]) === 'ok' ? a[1] : 0;
             var prev = cellState(a[2]) === 'ok' ? a[2] : null;
             if (r.key === 'FX:USDIDR') { if (price > 0) fx = price; return; }
-            if (price > 0) prices[r.key] = { price: price, prev: prev, time: null };
+            if (price > 0) {
+              prices[r.key] = { price: price, prev: prev, time: null };
+              EXTRA.forEach(function (name, j) {
+                var v = a[3 + j];
+                if (typeof v === 'number' && isFinite(v) && v !== 0) prices[r.key][name] = v;
+              });
+            }
             else errors[r.key] = 'Tidak ditemukan';
           });
           return { prices: prices, errors: errors, fx: fx };

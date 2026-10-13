@@ -85,6 +85,7 @@
 
   var ROUTES = [
     { id: 'dashboard', label: 'Dashboard', icon: 'home', markets: true },
+    { id: 'profil', label: 'Trading & Investing', icon: 'chart', markets: false },
     { id: 'emiten', label: 'Emiten', icon: 'home', markets: false, hidden: true },
     { id: 'transaksi', label: 'Transaksi', icon: 'swap', markets: true },
     { id: 'dividen', label: 'Dividen', icon: 'coin', markets: true },
@@ -97,6 +98,8 @@
     loadError: '',
     refreshing: false,
     live: 'idle',
+    profTab: 'all',
+    renewing: false,
     arg: '',
     f: { trx: { kode: '', jenis: '', tahun: '' }, div: { kode: '', tahun: '' } },
     focusId: ''
@@ -630,6 +633,66 @@
     return html;
   }
 
+  // ---------- halaman: trading dan investing ----------
+  function viewProfil(m) {
+    var groups = { trading: [], investing: [], none: [] }, all = [], skipped = [];
+    ORDER.forEach(function (mk) {
+      var rate = m.per[mk].rate;
+      m.per[mk].summary.rows.forEach(function (r) {
+        var key = mk + ':' + r.kode;
+        if (!rate) { skipped.push(r.kode); return; }
+        var o = { mk: mk, r: r, key: key, v: r.value * rate, cost: r.cost * rate, u: r.unrealized * rate, prof: S.profile(key) || 'none' };
+        groups[o.prof].push(o); all.push(o);
+      });
+    });
+    if (!all.length) return marketBanners(m) + '<div class="panel empty"><h3>Belum ada posisi</h3><p>Catat pembelian dulu, lalu atur tiap saham ke Trading atau Investing di sini.</p></div>';
+    var total = all.reduce(function (s, o) { return s + o.v; }, 0);
+    function sum(list, f) { return list.reduce(function (s, o) { return s + o[f]; }, 0); }
+    var META = { trading: ['Trading', '#B9810F'], investing: ['Investing', '#0D4F4A'], none: ['Belum diatur', '#A3B3AD'] };
+
+    var html = marketBanners(m);
+    // ---- alokasi ----
+    html += '<section class="section"><div class="section-head"><h2>Alokasi porsi</h2><span class="note">Dalam Rupiah, dari nilai portofolio sekarang</span></div>' +
+      '<div class="stack" role="img" aria-label="Porsi trading, investing, dan belum diatur">' +
+      ['trading', 'investing', 'none'].map(function (g) {
+        var v = sum(groups[g], 'v');
+        return v > 0 ? '<span style="width:' + (v / total * 100) + '%;background:' + META[g][1] + '" title="' + META[g][0] + ' ' + pct(v / total * 100).replace('+', '') + '"></span>' : '';
+      }).join('') + '</div>' +
+      '<div class="alloc-cards">' + ['trading', 'investing', 'none'].map(function (g) {
+        var list = groups[g];
+        if (!list.length) return '';
+        var v = sum(list, 'v'), c = sum(list, 'cost'), u = sum(list, 'u');
+        var byMk = {};
+        list.forEach(function (o) { byMk[o.mk] = (byMk[o.mk] || 0) + o.v; });
+        var top = list.slice().sort(function (a, b) { return b.v - a.v; }).slice(0, 5);
+        return '<div class="alloc-card"><div class="ac-head"><span class="sw" style="background:' + META[g][1] + '"></span><strong>' + META[g][0] + '</strong><span class="muted">' + list.length + ' emiten</span></div>' +
+          '<div class="ac-big">' + pct(v / total * 100).replace('+', '') + '</div><div class="muted">dari portofolio · ' + idr(v) + '</div>' +
+          '<dl class="leader" style="margin-top:10px">' + lead('Modal', idr(c)) + lead('Naik / turun vs modal', moneySigned(u, 'IDR') + ' (' + pct(c > 0 ? u / c * 100 : 0) + ')', { cls: cls(u, 'IDR') }) + '</dl>' +
+          '<div class="ac-sub">Per pasar: ' + ORDER.filter(function (mk) { return byMk[mk]; }).map(function (mk) { return esc(MK[mk].label) + ' ' + pct(byMk[mk] / v * 100).replace('+', ''); }).join(' · ') + '</div>' +
+          '<div class="ac-sub">Terbesar: ' + top.map(function (o) { return emLink(o.mk, o.r.kode) + ' ' + pct(o.v / v * 100).replace('+', ''); }).join(' · ') + '</div></div>';
+      }).join('') + '</div></section>';
+
+    // ---- daftar dengan tab ----
+    var tabs = [['all', 'Semua', all.length], ['trading', 'Trading', groups.trading.length], ['investing', 'Investing', groups.investing.length], ['none', 'Belum diatur', groups.none.length]];
+    var cur = state.profTab;
+    var list = (cur === 'all' ? all : groups[cur]).slice().sort(function (a, b) { return b.v - a.v; });
+    html += '<section class="section"><div class="section-head"><h2>Daftar saham</h2><span class="note">Pilih Trading atau Investing untuk tiap emiten</span></div>' +
+      '<div class="tabs" role="tablist">' + tabs.map(function (t) {
+        return '<button type="button" role="tab" data-act="prof-tab" data-t="' + t[0] + '" aria-selected="' + (cur === t[0]) + '">' + t[1] + ' <span class="cnt">' + t[2] + '</span></button>';
+      }).join('') + '</div>';
+    html += list.length ? '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Emiten</th><th class="num">Nilai</th><th class="num">Porsi</th><th class="num">Naik / turun vs modal</th><th>Profil</th></tr></thead><tbody>' +
+      list.map(function (o) {
+        return '<tr><td class="kode">' + emLink(o.mk, o.r.kode) + pill(o.mk, true) + '</td><td class="num">' + idr(o.v) + '</td><td class="num">' + pct(o.v / total * 100).replace('+', '') + '</td>' +
+          '<td class="num ' + cls(o.u, 'IDR') + '">' + moneySigned(o.u, 'IDR') + '<span class="sub">' + pct(o.r.unrealizedPct) + '</span></td>' +
+          '<td><div class="seg sm" role="group" aria-label="Profil ' + esc(o.r.kode) + '">' + [['trading', 'Trading'], ['investing', 'Investing'], ['', 'Reset']].map(function (x) {
+            return '<button type="button" data-act="set-profile" data-key="' + esc(o.key) + '" data-v="' + x[0] + '" aria-pressed="' + ((o.prof === 'none' ? '' : o.prof) === x[0]) + '">' + x[1] + '</button>';
+          }).join('') + '</div></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="panel empty"><p>Tidak ada emiten di tab ini.</p></div>';
+    if (skipped.length) html += '<p class="muted">Tidak ditampilkan karena kurs belum tersedia: ' + esc(skipped.join(', ')) + '.</p>';
+    html += '<p class="muted src">Profil tersimpan di browser ini. Emiten yang sudah dijual seluruhnya tidak masuk daftar.</p></section>';
+    return html;
+  }
+
   // ---------- halaman: rincian emiten ----------
   function viewEmiten(m) {
     var key = state.arg, pp = key.split(':'), mk = pp[0], kode = pp[1];
@@ -673,46 +736,86 @@
       '</dl></section>';
 
     // ---- info otomatis ----
-    var notes = [];
+    var MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    var live = (S.prices.items && S.prices.items[key]) || {};
+    var perUnit = mk === 'CRYPTO' ? 'koin' : 'lembar';
+    var lastSellRec = trx.filter(function (t) { return t.jenis === 'JUAL'; })[0];
+    var ctx = { price: price, shares: row ? row.shares : 0, avg: row ? row.avg : 0, lastSell: lastSellRec ? C.num(lastSellRec.harga) : 0,
+      high52: live.high52, low52: live.low52, pe: live.pe, eps: live.eps };
+    var official = window.PORTO_DIV && window.PORTO_DIV[key];
+    var plan = official && price ? Insight.dividendPlan(official, ymd(new Date()), ctx) : null;
+    var notes = [], head = '';
+
+    if (plan) {
+      var dc = plan.decision;
+      var VT = { layak: ['Layak dipertimbangkan', 'good'], netral: ['Netral', 'neutral'], tunggu: ['Tunggu koreksi', 'warn'] }[dc.verdict];
+      head = '<div class="verdict ' + VT[1] + '"><div><span class="lbl">Penilaian ringkas</span><strong>' + VT[0] + '</strong></div><p>' +
+        (dc.reasons.length ? esc(dc.reasons.join('; ')) + '.' : 'Belum ada sinyal yang menonjol.') + '</p></div>';
+      var l = plan.last;
+      notes.push({ tone: 'neutral', title: 'Dividen resmi terakhir',
+        text: l ? '<strong>' + esc(l.jenis) + ' ' + pxf(l.dps, ccy) + '</strong> per ' + perUnit + ': cum date ' + fmtDate(l.cum) + ', dibayar ' + fmtDate(l.pay) + '. ' +
+          'Total 12 bulan terakhir <strong>' + pxf(plan.trailing.dps, ccy) + '</strong> per ' + perUnit + ' (' + plan.trailing.count + ' kali) = <strong>' + pct(plan.yieldTrailing).replace('+', '') + '</strong> dari harga sekarang' +
+          (plan.yieldOnCost != null ? ', ' + pct(plan.yieldOnCost).replace('+', '') + ' dari harga rata-rata Anda' : '') + '.' +
+          (row ? ' Dengan ' + qtyf(row.qty, mk) + ' ' + MK[mk].unit + ' Anda, setara sekitar ' + money(plan.trailing.dps * row.shares, ccy) + ' per tahun sebelum pajak.' : '') : 'Belum ada dividen yang sudah lewat.' });
+      var nx = plan.next;
+      if (nx) {
+        var kindLbl = { resmi: 'Jadwal resmi', rencana: 'Rencana emiten', perkiraan: 'Perkiraan dari pola' }[nx.kind];
+        var when = nx.kind === 'rencana' ? 'sekitar <strong>' + MONTHS[nx.month - 1] + '</strong> (' + esc(nx.note || '') + ')' :
+          'cum date <strong>' + fmtDate(nx.cum) + '</strong> (±' + nx.daysAway + ' hari lagi)' + (nx.pay ? ', bayar ' + fmtDate(nx.pay) : '');
+        var amt = nx.dps != null ? pxf(nx.dps, ccy) + ' per ' + perUnit : (nx.refDps ? 'belum ditetapkan; bila sama dengan terakhir (' + pxf(nx.refDps, ccy) + ')' : 'belum ditetapkan');
+        notes.push({ tone: 'good', title: 'Dividen berikutnya · ' + kindLbl,
+          text: when + '. Nominal: ' + amt + (plan.nextYield != null ? ' = <strong>' + pct(plan.nextYield).replace('+', '') + '</strong> dari harga sekarang' : '') + '.' +
+            (plan.estAmount ? ' Untuk posisi Anda sekitar ' + money(plan.estAmount, ccy) + ' sebelum pajak.' : '') });
+      }
+      var w = plan.window;
+      if (w) {
+        var wtxt = w.state === 'inside' ? 'Anda <strong>sedang berada di jendela beli</strong>: ' + MONTHS[w.fromMonth - 1] + ' sampai ' + MONTHS[w.toMonth - 1] + ' (3 bulan sebelum pembagian).' :
+          w.state === 'upcoming' ? 'Jendela beli dimulai <strong>' + fmtDate(w.from) + '</strong> (' + MONTHS[w.fromMonth - 1] + ' sampai ' + MONTHS[w.toMonth - 1] + ') atau ±' + w.daysToStart + ' hari lagi.' :
+          'Jendela beli untuk jadwal ini sudah lewat.';
+        notes.push({ tone: w.state === 'inside' ? 'good' : 'neutral', title: 'Waktu beli untuk dividen',
+          text: wtxt + ' Saham harus dimiliki sebelum cum date agar berhak menerima dividen. Membeli lebih awal memberi waktu mendapat harga yang lebih baik.' });
+      }
+      var val = Insight.valuation(ctx, plan.yieldTrailing);
+      if (val) {
+        var bits = [];
+        if (val.range) bits.push('Rentang 52 minggu ' + pxf(val.range.low, ccy) + ' – ' + pxf(val.range.high, ccy) + '; harga sekarang ' + pct(val.range.fromHigh).replace('+', '') + ' dari tertinggi dan ' + pct(val.range.fromLow) + ' dari terendah.');
+        if (val.pe) bits.push('P/E ' + String(Math.round(val.pe * 10) / 10).replace('.', ',') + ' (' + val.peLabel + ' menurut patokan umum)' + (val.earningsYield ? ', imbal laba ' + pct(val.earningsYield).replace('+', '') : '') + '.');
+        notes.push({ tone: 'neutral', title: 'Valuasi ringkas', text: bits.join(' ') + ' Sumber: Google Finance, bisa tertunda.' });
+      }
+    } else {
+      // tanpa data dividen resmi: pakai pola dari catatan sendiri
+      var ol = Insight.dividendOutlook(dvs, ymd(new Date()), 90);
+      if (!ol.count) {
+        notes.push({ tone: 'neutral', title: 'Riwayat dividen', text: 'Belum ada data dividen resmi untuk ' + esc(kode) + ' di aplikasi ini, dan belum ada dividen yang Anda catat.' });
+      } else {
+        var pat = ol.months.slice().sort(function (a, b) { return a.month - b.month; }).map(function (x) { return MONTHS[x.month - 1]; }).join(', ');
+        notes.push({ tone: 'neutral', title: 'Pola dividen dari catatan Anda', text: 'Tercatat ' + ol.count + ' kali (terakhir ' + fmtDate(ol.last) + '), biasanya di bulan: ' + pat + '. Ini bukan jadwal resmi emiten.' });
+        ol.upcoming.forEach(function (u) {
+          notes.push({ tone: 'good', title: 'Dividen kemungkinan dalam 90 hari', text: 'Biasanya sekitar ' + MONTHS[u.month - 1] + ' (perkiraan ' + fmtDate(u.nextDate) + '). Cek jadwal resmi emiten sebelum membeli.' });
+        });
+      }
+    }
+
     var rb = price ? Insight.rebuyInsight(trx, price, row ? row.avg : 0) : null;
     if (rb) {
-      var d = rb.diffPct;
       notes.push({ tone: rb.tone, title: 'Dibanding harga jual terakhir',
-        text: 'Terakhir Anda jual ' + fmtDate(rb.lastSell.tanggal) + ' di ' + pxf(rb.lastSell.harga, ccy) + '. Harga sekarang ' + pxf(price, ccy) + ', selisih ' +
-          '<strong class="' + cls(d, 'IDR') + '">' + pct(d) + '</strong>: ' + rb.message });
-    } else if (price && !trx.some(function (t) { return t.jenis === 'JUAL'; })) {
-      notes.push({ tone: 'neutral', title: 'Dibanding harga jual terakhir', text: 'Belum ada penjualan ' + esc(kode) + ' yang tercatat, jadi belum ada pembanding.' });
+        text: 'Terakhir Anda jual ' + fmtDate(rb.lastSell.tanggal) + ' di ' + pxf(rb.lastSell.harga, ccy) + '. Sekarang ' + pxf(price, ccy) + ', selisih <strong class="' + cls(rb.diffPct, 'IDR') + '">' + pct(rb.diffPct) + '</strong>: ' + rb.message });
     }
     if (rb && rb.vsAvgPct != null) {
       notes.push({ tone: rb.vsAvgPct < 0 ? 'good' : 'neutral', title: 'Dibanding harga rata-rata Anda',
-        text: 'Harga sekarang ' + (rb.vsAvgPct < 0 ? 'di bawah' : 'di atas') + ' harga rata-rata beli (' + pxf(row.avg, ccy) + ') sebesar <strong class="' + cls(rb.vsAvgPct, 'IDR') + '">' + pct(rb.vsAvgPct) + '</strong>.' +
-          (rb.vsAvgPct < 0 ? ' Membeli lagi di harga ini akan menurunkan harga rata-rata Anda.' : ' Membeli lagi di harga ini akan menaikkan harga rata-rata Anda.') });
+        text: 'Harga sekarang ' + (rb.vsAvgPct < 0 ? 'di bawah' : 'di atas') + ' harga rata-rata (' + pxf(row.avg, ccy) + ') sebesar <strong class="' + cls(rb.vsAvgPct, 'IDR') + '">' + pct(rb.vsAvgPct) + '</strong>. ' +
+          (rb.vsAvgPct < 0 ? 'Membeli lagi akan menurunkan harga rata-rata.' : 'Membeli lagi akan menaikkan harga rata-rata.') });
     }
-    var ol = Insight.dividendOutlook(dvs, ymd(new Date()), 90);
-    var MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    if (!ol.count) {
-      notes.push({ tone: 'neutral', title: 'Riwayat dividen', text: 'Belum ada dividen ' + esc(kode) + ' yang tercatat. Catat dividen yang pernah diterima agar pola pembagiannya bisa dianalisis.' });
-    } else {
-      var pat = ol.months.slice().sort(function (a, b) { return a.month - b.month; }).map(function (x) {
-        return MONTHS[x.month - 1] + (x.routine ? ' (' + x.years.length + ' tahun)' : ' (1 tahun)');
-      }).join(', ');
-      var yieldTxt = price > 0 && ol.last12Dps > 0 ? ' Dividen per ' + (mk === 'CRYPTO' ? 'koin' : 'lembar') + ' 12 bulan terakhir ' + pxf(ol.last12Dps, ccy) + ' (sekitar ' + pct(ol.last12Dps / price * 100).replace('+', '') + ' dari harga sekarang).' : '';
-      notes.push({ tone: 'neutral', title: 'Pola pembagian dividen', text: 'Dari catatan Anda, dividen ' + esc(kode) + ' tercatat ' + ol.count + ' kali (terakhir ' + fmtDate(ol.last) + '), biasanya di bulan: ' + pat + '.' + yieldTxt });
-      if (ol.upcoming.length) {
-        ol.upcoming.forEach(function (u) {
-          notes.push({ tone: 'good', title: 'Dividen kemungkinan dalam ' + ol.windowDays + ' hari ke depan',
-            text: 'Biasanya cair sekitar <strong>' + MONTHS[u.month - 1] + '</strong> (perkiraan ' + fmtDate(u.nextDate) + ', ±' + u.daysAway + ' hari lagi), rata-rata ' + money(u.avgAmount, ccy) + ' dari posisi Anda' + (u.avgDps > 0 ? ' atau ' + pxf(u.avgDps, ccy) + ' per ' + (mk === 'CRYPTO' ? 'koin' : 'lembar') : '') + '. ' +
-              'Untuk ikut menerima, saham harus sudah dimiliki sebelum tanggal cum-date; cek jadwal resmi emiten karena tanggal sebenarnya bisa berbeda.' });
-        });
-      } else {
-        var nx = ol.months[0];
-        notes.push({ tone: 'neutral', title: 'Dividen berikutnya', text: 'Belum ada pola dividen dalam ' + ol.windowDays + ' hari ke depan. Pola terdekat: ' + MONTHS[nx.month - 1] + ' (perkiraan ' + fmtDate(nx.nextDate) + ', ±' + nx.daysAway + ' hari lagi).' });
-      }
-    }
-    html += '<section class="section"><div class="section-head"><h2>Info otomatis</h2><span class="note">Dihitung dari catatan Anda, bukan prediksi dan bukan saran investasi</span></div>' +
+    notes.push({ tone: 'neutral', title: 'Belum tersedia otomatis',
+      text: 'Aliran broker (smart money), berita, laporan keuangan terbaru, dan target analis tidak punya sumber data gratis yang bisa dipanggil dari aplikasi ini. Minta Claude di chat, misalnya “analisis ' + esc(kode) + '”, untuk ringkasan dari sumber publik.' });
+
+    var srcHtml = official ? '<p class="muted src">Data dividen per ' + fmtDate(official.asOf) + ' dari pemberitaan pengumuman resmi (bukan umpan langsung): ' +
+      official.sumber.map(function (x) { return '<a href="' + esc(x.u) + '" target="_blank" rel="noopener">' + esc(x.t) + '</a>'; }).join(' · ') + '. Cek tanggal asli di keterbukaan informasi emiten sebelum bertransaksi.</p>' : '';
+
+    html += '<section class="section"><div class="section-head"><h2>Info otomatis</h2><span class="note">Berbasis aturan sederhana dan data yang tersedia, bukan saran investasi</span></div>' + head +
       '<div class="notes">' + notes.map(function (n) {
         return '<div class="note-card ' + n.tone + '"><h3>' + esc(n.title) + '</h3><p>' + n.text + '</p></div>';
-      }).join('') + '</div></section>';
+      }).join('') + '</div>' + srcHtml + '</section>';
 
     // ---- riwayat ----
     html += '<section class="section"><div class="section-head"><h2>Riwayat jual beli</h2><span class="note">' + trx.length + ' transaksi</span></div>';
@@ -805,7 +908,7 @@
     return html + '</div>';
   }
 
-  var VIEWS = { emiten: viewEmiten, dashboard: viewDashboard, transaksi: viewTransaksi, dividen: viewDividen, bulanan: viewBulanan, pengaturan: viewPengaturan };
+  var VIEWS = { profil: viewProfil, emiten: viewEmiten, dashboard: viewDashboard, transaksi: viewTransaksi, dividen: viewDividen, bulanan: viewBulanan, pengaturan: viewPengaturan };
 
   // ---------- render ----------
   function renderNav() {
@@ -828,7 +931,10 @@
 
   function renderSync() {
     var el = $('#sync');
-    if (S.needLogin()) {
+    if (sessionSoon()) {
+      el.className = 'sync err';
+      el.innerHTML = '<span class="dot"></span>Sesi segera berakhir<br><button class="linkbtn" data-act="renew" type="button">Perpanjang sekarang</button>';
+    } else if (S.needLogin()) {
       el.className = 'sync err';
       el.innerHTML = '<span class="dot"></span>Belum masuk<br><button class="linkbtn" data-act="google-login" type="button">Masuk dengan Google</button>';
     } else if (S.isSheet()) {
@@ -1152,6 +1258,28 @@
     return S.signIn().then(function () { return S.reload(); }).then(function () { state.loadError = ''; });
   }
 
+  // ---------- sesi Google: perpanjang otomatis supaya tidak sering keluar ----------
+  var SOON = 6 * 60 * 1000;
+  function sessionSoon() { return S.mode() === 'google' && !S.needLogin() && S.sessionLeft() < SOON; }
+  function renewSession(fromClick) {
+    if (S.mode() !== 'google' || state.renewing) return;
+    if (!S.needLogin() && S.sessionLeft() >= SOON) return;
+    state.renewing = true;
+    S.renewSession().then(function () {
+      state.renewing = false;
+      if (S.data && !S.data.transaksi.length && S.needLogin()) return;
+      return S.reload().then(function () { state.loadError = ''; render(); });
+    }).catch(function (e) {
+      state.renewing = false;
+      if (fromClick) return; // klik biasa: abaikan; pengguna masih bisa masuk dari tombol
+      renderSync();
+    });
+  }
+  // klik pertama setelah sesi hampir habis memicu perpanjangan (klik diizinkan membuka jendela Google)
+  document.addEventListener('pointerdown', function () { if (sessionSoon() || S.needLogin()) renewSession(true); }, true);
+  setInterval(function () { if (!document.hidden && sessionSoon()) renewSession(false); }, 30 * 1000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && (sessionSoon() || S.needLogin())) renewSession(false); });
+
   // ---------- crypto real-time (WebSocket Binance) ----------
   var liveTimer = null;
   var live = root_Live().create({
@@ -1278,6 +1406,7 @@
     'edit-div': function (b) { openDivForm(b.dataset.id); },
     'market': function (b) { setMarket(b.dataset.m); },
     'set-profile': function (b) { S.setProfile(b.dataset.key, b.dataset.v); render(); },
+    'prof-tab': function (b) { state.profTab = b.dataset.t; render(); },
     'del-trx': function (b) {
       var t = S.data.transaksi.filter(function (x) { return x.id === b.dataset.id; })[0];
       if (!t) return;
@@ -1299,6 +1428,7 @@
     },
     'price': function (b) { openPriceForm(b.dataset.key); },
     'reload': function (b) { reloadFromSheet(b); },
+    'renew': function () { state.renewing = false; renewSession(false); },
     'google-login': function (b) {
       if (S.mode() === 'google') return reloadFromSheet(b);
       guard(b, function () {

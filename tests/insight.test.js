@@ -36,3 +36,41 @@ assert.strictEqual(o.upcoming.length, 0);
 assert.strictEqual(I.dividendOutlook([], '2026-01-01').count, 0);
 assert.strictEqual(I.dividendOutlook([{ tanggal: 'x' }], '2026-01-01').count, 0);
 console.log('Semua tes insight lulus.');
+
+// ---- dividen resmi ----
+{
+  const rec = {
+    items: [
+      { cum: '2025-03-20', pay: '2025-04-11', dps: 250, jenis: 'Final' },
+      { cum: '2025-12-02', pay: '2025-12-22', dps: 55, jenis: 'Interim' },
+      { cum: '2026-03-27', pay: '2026-04-08', dps: 281, jenis: 'Final' },
+      { cum: '2026-08-28', pay: '2026-09-16', dps: 25, jenis: 'Interim' }
+    ],
+    planned: [{ periode: '2026-12', note: 'Desember' }]
+  };
+  let p = I.dividendPlan(rec, '2026-10-13', { price: 9000, shares: 1000, avg: 9000, lastSell: 10000, high52: 10500, low52: 7500 });
+  assert.strictEqual(p.last.cum, '2026-08-28');
+  assert.strictEqual(p.trailing.dps, 55 + 281 + 25, 'dividen 12 bulan terakhir (cum setelah 2025-10-13)');
+  assert.ok(Math.abs(p.yieldTrailing - 361 / 9000 * 100) < 1e-9);
+  assert.strictEqual(p.next.kind, 'rencana'); assert.strictEqual(p.next.month, 12);
+  assert.strictEqual(p.window.state, 'inside'); assert.strictEqual(p.window.fromMonth, 10); assert.strictEqual(p.window.toMonth, 12);
+  assert.strictEqual(p.decision.verdict, 'layak');
+  assert.strictEqual(p.estAmount, 25 * 1000, 'perkiraan memakai dividen terakhir sebagai acuan');
+  // harga dekat tertinggi 52 minggu dan sudah jauh di atas harga jual terakhir => tunggu
+  p = I.dividendPlan(rec, '2026-10-13', { price: 10450, shares: 1000, lastSell: 9000, high52: 10500, low52: 7500 });
+  assert.strictEqual(p.decision.verdict, 'tunggu');
+  // jadwal resmi di depan
+  const rec2 = { items: rec.items.concat([{ cum: '2026-12-03', pay: '2026-12-22', dps: 60, jenis: 'Interim' }]) };
+  p = I.dividendPlan(rec2, '2026-10-13', { price: 9000 });
+  assert.strictEqual(p.next.kind, 'resmi'); assert.strictEqual(p.next.dps, 60); assert.strictEqual(p.next.cum, '2026-12-03');
+  assert.strictEqual(p.window.from, '2026-09-04');
+  // tanpa rencana dan tanpa jadwal resmi => perkiraan dari pola
+  p = I.dividendPlan({ items: rec.items }, '2026-10-13', { price: 9000 });
+  assert.strictEqual(p.next.kind, 'perkiraan'); assert.strictEqual(p.next.month, 12);
+  assert.strictEqual(I.dividendPlan(null, '2026-10-13', {}), null);
+  // valuasi
+  const v = I.valuation({ price: 9000, high52: 10000, low52: 8000, pe: 30, eps: 300 }, 4);
+  assert.strictEqual(v.peLabel, 'tinggi'); assert.ok(Math.abs(v.range.fromHigh + 10) < 1e-9); assert.ok(Math.abs(v.earningsYield - 3.3333) < 0.001);
+  assert.strictEqual(I.valuation({ price: 1 }, null), null);
+  console.log('Semua tes dividen resmi lulus.');
+}
