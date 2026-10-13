@@ -9,7 +9,7 @@ Aplikasi web untuk mencatat jual beli, dividen, dan memantau profit per bulan. T
 - **Transaksi**: catat beli dan jual. Profit tiap penjualan dihitung otomatis dengan metode harga rata-rata. Penjualan yang melebihi kepemilikan ditolak.
 - **Dividen / reward**: per aset, dengan pajak. Ringkasan per aset dan per tahun.
 - **Bulanan**: profit dan rugi tiap bulan (profit jual + dividen), bulan terbaik dan terburuk, kumulatif.
-- **Harga harian**: saham Indonesia, saham US, dan crypto diperbarui otomatis dari Yahoo Finance lewat Apps Script (cache 5 menit), termasuk kurs USD ke Rupiah. Bila suatu kode tidak ada, isi harga manual.
+- **Harga harian**: saham Indonesia, saham US, dan crypto diperbarui otomatis: crypto dari Binance, saham dari GOOGLEFINANCE (login Google), atau Yahoo Finance bila memakai Apps Script. Termasuk kurs USD ke Rupiah. Bila suatu kode tidak ada, isi harga manual.
 - **Catat lewat chat**: tulis ke Claude “beli BBCA 10 lot harga 9000”, catatan langsung masuk ke tab yang tepat di Sheet.
 - Ekspor/impor cadangan (JSON), ekspor CSV, tampilan gelap otomatis, nyaman di ponsel.
 
