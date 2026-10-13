@@ -462,7 +462,11 @@
       }
     });
 
-    var html = marketBanners(m) + '<div class="filters">' +
+    var nowPx = {};
+    m.list.forEach(function (mk) {
+      m.per[mk].summary.rows.forEach(function (r) { if (r.hasPrice) nowPx[mk + ':' + r.kode] = r; });
+    });
+    var html = marketBanners(m) + tickerStrip(m) + '<div class="filters">' +
       selectField('ft-kode', 'Aset', f.kode, kodeOpts) +
       selectField('ft-jenis', 'Jenis', f.jenis, [['', 'Beli dan jual'], ['BELI', 'Beli'], ['JUAL', 'Jual']]) +
       selectField('ft-tahun', 'Tahun', f.tahun, yearOpts) + '</div>';
@@ -470,11 +474,16 @@
     if (!rows.length) return html + '<div class="panel empty"><p>Tidak ada transaksi yang cocok dengan filter.</p></div>';
 
     html += '<div class="panel table-wrap"><table class="tbl"><thead><tr>' +
-      '<th>Tanggal</th><th>Aset</th><th>Jenis</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Nilai</th><th class="num">Fee</th><th class="num">Profit / rugi</th><th></th></tr></thead><tbody>' +
+      '<th>Tanggal</th><th>Aset</th><th>Jenis</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Nilai</th><th class="num">Fee</th><th class="num">Harga sekarang</th><th class="num">Profit / rugi</th><th></th></tr></thead><tbody>' +
       rows.map(function (t) {
         var ccy = ccyOf(t.pasar), mult = MK[t.pasar].mult;
         var gross = C.qtyOf(t) * mult * C.num(t.harga);
         var pl = t.jenis === 'JUAL' ? m.per[t.pasar].ledger.perTrx[t.id] : null;
+        var np = nowPx[t.pasar + ':' + t.kode], nowCell = '<span class="muted">–</span>';
+        if (np && t.jenis === 'BELI' && C.num(t.harga) > 0) {
+          var dp = (np.price - C.num(t.harga)) / C.num(t.harga) * 100;
+          nowCell = pxf(np.price, ccy) + '<span class="sub ' + cls(dp, 'IDR') + '">' + pct(dp) + ' dari harga beli</span>';
+        } else if (np) nowCell = pxf(np.price, ccy);
         return '<tr><td>' + fmtDate(t.tanggal) + (t.catatan ? '<span class="sub muted" style="font-weight:500">' + esc(t.catatan) + '</span>' : '') + '</td>' +
           '<td class="kode">' + esc(t.kode) + (m.all ? pill(t.pasar, true) : '') + '</td>' +
           '<td><span class="pill ' + (t.jenis === 'BELI' ? 'beli' : 'jual') + '">' + (t.jenis === 'BELI' ? 'Beli' : 'Jual') + '</span>' +
@@ -483,11 +492,12 @@
           '<td class="num">' + pxf(C.num(t.harga), ccy) + '</td>' +
           '<td class="num">' + money(gross, ccy) + '</td>' +
           '<td class="num">' + (C.num(t.fee) ? money(t.fee, ccy) : '<span class="muted">–</span>') + '</td>' +
+          '<td class="num">' + nowCell + '</td>' +
           '<td class="num ' + (pl == null ? 'flat' : cls(pl, ccy)) + '">' + (pl == null ? '–' : moneySigned(pl, ccy)) + '</td>' +
           '<td class="acts"><button class="btn ghost sm" data-act="edit-trx" data-id="' + esc(t.id) + '" type="button">Ubah</button>' +
           '<button class="btn danger sm" data-act="del-trx" data-id="' + esc(t.id) + '" type="button">Hapus</button></td></tr>';
       }).join('') +
-      '</tbody><tfoot><tr><td colspan="7">' + rows.length + ' transaksi · total profit jual' + (m.all ? ' (dalam Rupiah)' : '') + '</td>' +
+      '</tbody><tfoot><tr><td colspan="8">' + rows.length + ' transaksi · total profit jual' + (m.all ? ' (dalam Rupiah)' : '') + '</td>' +
       '<td class="num ' + cls(sum, m.dispCcy) + '">' + (skippedSum ? '–' : moneySigned(sum, m.dispCcy)) + '</td><td></td></tr></tfoot></table></div>';
     return html;
   }
