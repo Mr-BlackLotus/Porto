@@ -2,7 +2,8 @@
  * Porto — penyimpanan data.
  * Dua mode:
  *  - lokal  : disimpan di browser (localStorage), cocok untuk mencoba.
- *  - sheet  : disimpan di Google Sheets milik Anda lewat Apps Script (apps-script/Code.gs).
+ *  - sheet  : disimpan di Google Sheets milik Anda, lewat login Google (js/gsheets.js)
+ *             atau lewat Apps Script (apps-script/Code.gs).
  * Setiap baris punya `pasar`: ID (saham Indonesia), US (saham US), CRYPTO.
  */
 (function (root) {
@@ -17,6 +18,8 @@
   var MARKETS = ['ID', 'US', 'CRYPTO'];
 
   var DEFAULTS = {
+    source: '',
+    google: { clientId: '', sheetId: '', email: '' },
     url: '',
     token: '',
     market: 'ALL',
@@ -59,6 +62,8 @@
   /** Lengkapi pengaturan dan pindahkan fee versi lama (satu pasar) ke fee.ID. */
   function normalizeSettings(s) {
     var out = Object.assign(clone(DEFAULTS), s);
+    out.google = Object.assign(clone(DEFAULTS.google), s.google || {});
+    if (out.source !== 'google' && out.source !== 'apps') out.source = (out.url && /^https:\/\//.test(out.url)) ? 'apps' : '';
     var fee = clone(DEFAULTS.fee);
     MARKETS.forEach(function (m) {
       if (s.fee && s.fee[m]) fee[m] = Object.assign(fee[m], s.fee[m]);
@@ -97,7 +102,50 @@
     return out;
   }
 
-  function isSheet() { return !!(settings.url && /^https:\/\//.test(settings.url)); }
+  /** 'google' (login Google + Sheets API), 'apps' (Apps Script) atau 'lokal'. */
+  function mode() {
+    var g = settings.google;
+    if (settings.source === 'google' && g.clientId && g.sheetId) return 'google';
+    if (settings.source === 'apps' && settings.url && /^https:\/\//.test(settings.url)) return 'apps';
+    return 'lokal';
+  }
+  function isSheet() { return mode() !== 'lokal'; }
+
+  // ---- Google: auth dan klien dibuat ulang bila Client ID atau Sheet berubah ----
+  var gCache = { key: '', auth: null, client: null };
+  function google() {
+    var g = settings.google;
+    var key = g.clientId + '|' + g.sheetId;
+    if (gCache.key !== key) {
+      if (gCache.auth) gCache.auth.signOut();
+      var auth = root.GSheets.createAuth({ clientId: g.clientId, hint: function () { return settings.google.email; } });
+      gCache = { key: key, auth: auth, client: root.GSheets.createClient({ sheetId: g.sheetId, auth: auth }) };
+    }
+    return gCache;
+  }
+
+  /** Satu antarmuka untuk dua backend. */
+  function remote() {
+    if (mode() === 'google') {
+      var c = google().client;
+      return {
+        all: function () { return c.readAll(); },
+        add: function (kind, row) { return c.append(kind, row); },
+        update: function (kind, row) { return c.update(kind, row); },
+        remove: function (kind, id, pasar) { return c.remove(kind, id, pasar); },
+        replaceAll: function (n) { return c.replaceAll(n); },
+        prices: function (keys) { return c.prices(keys); }
+      };
+    }
+    return {
+      all: function () { return api('GET', { action: 'all' }); },
+      add: function (kind, row) { return api('POST', { action: 'add', sheet: kind, row: row }); },
+      update: function (kind, row) { return api('POST', { action: 'update', sheet: kind, row: row }); },
+      remove: function (kind, id, pasar) { return api('POST', { action: 'delete', sheet: kind, id: id, pasar: pasar }); },
+      replaceAll: function (n) { return api('POST', { action: 'replaceAll', transaksi: n.transaksi, dividen: n.dividen }); },
+      prices: function (keys) { return api('GET', { action: 'prices', symbols: keys.join(',') }); }
+    };
+  }
 
   function api(method, payload) {
     var url = settings.url;
@@ -139,6 +187,7 @@
     get manual() { return manual; },
     get prices() { return prices; },
     isSheet: isSheet,
+    mode: mode,
     COLS: COLS,
     MARKETS: MARKETS,
 
@@ -159,14 +208,51 @@
         return Promise.resolve({ mode: 'lokal' });
       }
       data = normalizeData(load(KEY_CACHE, EMPTY));
+      // Token Google hanya bisa diminta lewat klik pengguna, jadi tampilkan cache dulu.
+      if (mode() === 'google') return Promise.resolve({ mode: 'google', needLogin: true });
       return Store.reload();
     },
 
     reload: function () {
-      return api('GET', { action: 'all' }).then(function (j) {
+      return remote().all().then(function (j) {
         data = normalizeData(j);
         persist();
-        return { mode: 'sheet' };
+        return { mode: mode() };
+      });
+    },
+
+    /** Google: belum login (atau token habis) sehingga perlu klik "Masuk dengan Google". */
+    needLogin: function () { return mode() === 'google' && !google().auth.token(); },
+    email: function () { return settings.google.email || ''; },
+
+    /** Harus dipanggil dari klik pengguna. Mengembalikan email akun yang masuk. */
+    signIn: function () {
+      if (mode() !== 'google') return Promise.reject(new Error('Mode Google belum diatur.'));
+      return google().auth.signIn().then(function (email) {
+        if (email && email !== settings.google.email) {
+          Store.saveSettings({ google: Object.assign({}, settings.google, { email: email }) });
+        }
+        return email;
+      });
+    },
+    signOut: function () {
+      if (gCache.auth) gCache.auth.signOut();
+    },
+
+    /** Sambungkan lewat login Google; bila gagal, pengaturan dan data lama dikembalikan. */
+    googleConnect: function (clientId, sheetInput) {
+      var id = root.GSheets.parseSheetId(sheetInput);
+      if (!id) return Promise.reject(new Error('Tautan atau ID spreadsheet tidak dikenali.'));
+      var prevSettings = clone(settings);
+      var prevData = data;
+      Store.saveSettings({ source: 'google', google: { clientId: clientId, sheetId: id, email: '' } });
+      return Store.signIn().then(function () { return Store.reload(); }).catch(function (e) {
+        Store.signOut();
+        gCache = { key: '', auth: null, client: null };
+        settings = prevSettings;
+        save(KEY_SETTINGS, settings);
+        data = prevData;
+        throw e;
       });
     },
 
@@ -179,7 +265,7 @@
     connect: function (url, token) {
       var prevSettings = clone(settings);
       var prevData = data;
-      Store.saveSettings({ url: url, token: token });
+      Store.saveSettings({ source: 'apps', url: url, token: token });
       return Store.reload().catch(function (e) {
         settings = prevSettings;
         save(KEY_SETTINGS, settings);
@@ -189,7 +275,9 @@
     },
 
     disconnect: function () {
-      Store.saveSettings({ url: '', token: '' });
+      Store.signOut();
+      gCache = { key: '', auth: null, client: null };
+      Store.saveSettings({ source: '', url: '', token: '', google: { clientId: '', sheetId: '', email: '' } });
       data = normalizeData(load(KEY_DATA, EMPTY));
     },
 
@@ -201,7 +289,7 @@
 
     add: function (kind, row) {
       var r = clean(kind, row);
-      var step = isSheet() ? api('POST', { action: 'add', sheet: kind, row: r }) : Promise.resolve();
+      var step = isSheet() ? remote().add(kind, r) : Promise.resolve();
       return step.then(function () {
         data[kind].push(r);
         persist();
@@ -211,7 +299,7 @@
 
     update: function (kind, row) {
       var r = clean(kind, row);
-      var step = isSheet() ? api('POST', { action: 'update', sheet: kind, row: r }) : Promise.resolve();
+      var step = isSheet() ? remote().update(kind, r) : Promise.resolve();
       return step.then(function () {
         var i = data[kind].findIndex(function (x) { return x.id === r.id; });
         if (i > -1) data[kind][i] = r; else data[kind].push(r);
@@ -223,7 +311,7 @@
     remove: function (kind, id) {
       var existing = data[kind].filter(function (x) { return x.id === id; })[0];
       var step = isSheet()
-        ? api('POST', { action: 'delete', sheet: kind, id: id, pasar: existing ? existing.pasar : '' })
+        ? remote().remove(kind, id, existing ? existing.pasar : '')
         : Promise.resolve();
       return step.then(function () {
         data[kind] = data[kind].filter(function (x) { return x.id !== id; });
@@ -234,7 +322,7 @@
     /** Ganti seluruh isi (impor / unggah data lokal ke Sheet). */
     replaceAll: function (next) {
       var n = normalizeData(next);
-      var step = isSheet() ? api('POST', { action: 'replaceAll', transaksi: n.transaksi, dividen: n.dividen }) : Promise.resolve();
+      var step = isSheet() ? remote().replaceAll(n) : Promise.resolve();
       return step.then(function () {
         data = n;
         persist();
@@ -249,7 +337,7 @@
 
     fetchPrices: function (keys) {
       if (!isSheet()) return Promise.reject(new Error('Harga otomatis butuh koneksi ke Google Sheets (menu Pengaturan).'));
-      return api('GET', { action: 'prices', symbols: keys.join(',') }).then(function (j) {
+      return remote().prices(keys).then(function (j) {
         var items = Object.assign({}, prices.items);
         Object.keys(j.prices || {}).forEach(function (k) {
           if (j.prices[k] && j.prices[k].price > 0) items[k] = j.prices[k];

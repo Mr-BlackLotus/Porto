@@ -29,24 +29,44 @@ Aplikasi web untuk mencatat jual beli, dividen, dan memantau profit per bulan. T
 
 Repositori boleh publik: URL Web App dan token tidak ada di kode, hanya disimpan di browser Anda.
 
-## Sambungkan ke Google Sheets (sekali saja)
+## Masuk dengan Google (disarankan)
+
+Aplikasi membaca dan menulis spreadsheet langsung dari browser Anda memakai login Google. Tidak ada token yang dibagikan: siapa pun yang Anda beri akses lewat **Bagikan** di Drive bisa masuk dengan akun Gmail-nya sendiri.
+
+1. Buka [console.cloud.google.com](https://console.cloud.google.com), buat project.
+2. **APIs & Services → Library**: aktifkan **Google Sheets API**.
+3. **OAuth consent screen**: tipe External, status Testing, tambahkan semua akun Gmail Anda sebagai **Test users**.
+4. **Credentials → OAuth client ID → Web application**. Di **Authorized JavaScript origins** isi `https://<username>.github.io` (tanpa garis miring).
+5. Buka aplikasi (alamat GitHub Pages) → **Pengaturan → Masuk dengan Google**, tempel Client ID dan tautan spreadsheet, klik masuk.
+
+Catatan: Google menampilkan peringatan "aplikasi belum diverifikasi" untuk aplikasi pribadi, pilih Lanjutkan. Izin yang diminta (`spreadsheets`) berlaku untuk semua spreadsheet di akun yang login, walau aplikasi hanya membuka satu. Token berlaku sekitar satu jam; setelah itu klik **Masuk dengan Google** lagi. Tab data dibuat otomatis, dengan nama yang sama seperti versi Apps Script.
+
+### Harga terbaru
+
+- **Crypto**: API publik Binance (`data-api.binance.vision`, tanpa API key). Harga terakhir dan perubahan 24 jam terhadap pasangan USDT. Bila Binance tidak terjangkau dari jaringan Anda, otomatis memakai GOOGLEFINANCE.
+- **Saham Indonesia dan US, serta kurs USD ke Rupiah**: rumus `GOOGLEFINANCE` di tab **Harga** pada spreadsheet Anda (dibuat dan diisi otomatis). Google menyebut data bursa Indonesia tertunda sekitar 10 menit.
+- **Stockbit**: tidak dipakai karena tidak ada API publik resmi untuk pengembang.
+
+## Apps Script (opsional, untuk catat lewat chat)
+
+Mode Apps Script tetap tersedia dan dibutuhkan bila ingin mencatat lewat chat dengan Claude. Keduanya memakai tab yang sama.
 
 1. Buka spreadsheet **Porto** → **Ekstensi → Apps Script**.
 2. Hapus isi bawaan, tempel seluruh isi `apps-script/Code.gs`.
 3. Ganti dua baris di atas dengan kata sandi buatan Anda, **keduanya harus berbeda**:
    - `TOKEN`: akses penuh, dipakai aplikasi web. Jangan dibagikan.
    - `CHAT_TOKEN`: akses terbatas untuk mencatat lewat chat (lihat di bawah).
-4. Pilih fungsi `setup`, klik **Run**, setujui izin. Terbentuk enam tab: `ID Transaksi`, `ID Dividen`, `US Transaksi`, `US Dividen`, `Crypto Transaksi`, `Crypto Reward`. Bila sebelumnya ada tab `Transaksi` dan `Dividen` dari versi lama, keduanya otomatis dijadikan tab pasar Indonesia.
+4. Pilih fungsi `setup`, klik **Run**, setujui izin. Terbentuk enam tab: `ID Transaksi`, `ID Dividen`, `US Transaksi`, `US Dividen`, `Crypto Transaksi`, `Crypto Reward`. Tab lama `Transaksi` dan `Dividen` otomatis dijadikan tab pasar Indonesia.
 5. **Deploy → New deployment → Web app**: *Execute as* = **Me**, *Who has access* = **Anyone**. Salin URL Web App.
-6. Buka aplikasi → **Pengaturan → Google Sheets**, tempel URL dan `TOKEN`, klik **Sambungkan**.
+6. Bila ingin aplikasi memakai Apps Script (bukan login Google): **Pengaturan → Apps Script**, tempel URL dan `TOKEN`, klik **Sambungkan**.
 7. Di **Pengaturan**, pilih mata uang crypto (Rupiah atau dolar) dan samakan `CRYPTO_CCY` di Code.gs.
 
-Bila mengubah `Code.gs` di kemudian hari, buat versi deployment baru (Deploy → Manage deployments → Edit → New version).
+Bila mengubah `Code.gs`, buat versi deployment baru (Deploy → Manage deployments → Edit → New version).
 
 ### Keamanan
 
 - Setiap permintaan dicek tokennya di server. Siapa pun yang tahu URL tanpa token tidak bisa membaca atau mengubah data.
-- Pengaturan berbagi spreadsheet tidak perlu terbuka untuk umum. Apps Script berjalan atas nama akun Anda, jadi sheet cukup **Restricted**. Membuka sheet untuk “siapa saja bisa edit” justru membuat siapa pun yang memegang tautannya bisa mengubah data keuangan Anda tanpa token.
+- Dengan login Google maupun Apps Script, pengaturan berbagi spreadsheet tidak perlu terbuka untuk umum; cukup bagikan ke akun yang dipercaya. Apps Script berjalan atas nama akun Anda, jadi sheet cukup **Restricted**. Membuka sheet untuk “siapa saja bisa edit” justru membuat siapa pun yang memegang tautannya bisa mengubah data keuangan Anda tanpa token.
 - Jangan membagikan URL Web App dan token bersama-sama.
 
 ## Catat lewat chat
@@ -85,6 +105,7 @@ Tanpa proses build. Logika hitung ada di `js/calc.js`, backend di `apps-script/C
 ```
 node tests/calc.test.js
 node tests/appsscript.test.js
+node tests/gsheets.test.js
 ```
 
 ## Catatan

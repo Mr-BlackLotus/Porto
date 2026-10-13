@@ -211,9 +211,13 @@
       html += banner('<strong>Gagal memuat dari Google Sheets.</strong> ' + esc(state.loadError) +
         ' <button class="linkbtn" data-act="reload" type="button">Coba lagi</button>', 'err');
     }
+    if (S.needLogin()) {
+      html += banner('<strong>Masuk dengan Google untuk memuat data terbaru.</strong> Yang tampil sekarang adalah salinan terakhir di browser ini. ' +
+        '<button class="linkbtn" data-act="google-login" type="button">Masuk dengan Google</button>');
+    }
     if (!S.isSheet()) {
       html += banner('<strong>Mode lokal.</strong> Data hanya tersimpan di browser ini dan harga harian tidak diperbarui otomatis. ' +
-        '<a href="#/pengaturan">Hubungkan ke Google Sheets</a> untuk menyimpan data di Drive Anda dan mengaktifkan harga otomatis.');
+        '<a href="#/pengaturan">Masuk dengan Google</a> untuk menyimpan data di Drive Anda dan mengaktifkan harga otomatis.');
     }
     if (m.needFx) {
       html += banner('<strong>Kurs USD ke Rupiah belum tersedia.</strong> Pasar yang dicatat dalam dolar belum ikut dihitung di tampilan Semua. ' +
@@ -228,7 +232,7 @@
     m.list.forEach(function (mk) {
       m.per[mk].summary.missingPrices.forEach(function (k) { missing.push({ mk: mk, kode: k }); });
     });
-    if (S.isSheet() && missing.length) {
+    if (S.isSheet() && !S.needLogin() && missing.length) {
       var errs = S.prices.errors || {};
       var notFound = missing.filter(function (x) { return errs[x.mk + ':' + x.kode]; });
       var names = missing.map(function (x) { return x.kode; });
@@ -560,19 +564,42 @@
 
     var html = '<div>';
 
-    html += '<section class="settings-block"><div><h2>Google Sheets</h2><p>Simpan semua transaksi dan dividen di spreadsheet Anda sendiri, satu tab per pasar. Tanpa ini, data hanya ada di browser ini.</p></div><div>' +
-      '<div class="banner" style="margin-bottom:16px">' + (sheet ? '<div><strong>Tersambung.</strong> Data dibaca dan ditulis ke spreadsheet Anda.</div>' : '<div><strong>Belum tersambung.</strong> Ikuti langkah Apps Script di README, lalu tempel URL dan token di sini.</div>') + '</div>' +
+    var gm = S.mode() === 'google', am = S.mode() === 'apps', g = st.google;
+    var origin = location.protocol === 'file:' ? '' : location.origin;
+    html += '<section class="settings-block"><div><h2>Masuk dengan Google</h2><p>Login dengan akun Gmail Anda. Siapa pun yang diberi akses ke spreadsheet lewat Bagikan di Drive bisa masuk dengan akunnya sendiri. Tanpa token yang dibagikan.</p></div><div>' +
+      '<div class="banner" style="margin-bottom:16px">' + (gm
+        ? '<div><strong>Tersambung' + (g.email ? ' sebagai ' + esc(g.email) : '') + '.</strong> ' + (S.needLogin() ? 'Sesi login habis, klik Masuk dengan Google.' : 'Data dibaca dan ditulis ke spreadsheet langsung dari browser ini.') + '</div>'
+        : '<div><strong>' + (am ? 'Sedang memakai Apps Script.' : 'Belum tersambung.') + '</strong> Isi Client ID dan tautan spreadsheet, lalu masuk.</div>') + '</div>' +
+      (location.protocol === 'file:' ? '<div class="banner err" style="margin-bottom:16px"><div>Login Google tidak berjalan dari file lokal. Buka lewat alamat GitHub Pages Anda.</div></div>' : '') +
+      '<form id="form-google" class="form-grid" autocomplete="off">' +
+      '<div class="field wide"><label for="g-client">Client ID Google</label><input id="g-client" name="clientId" type="text" placeholder="123456-abc.apps.googleusercontent.com" value="' + esc(g.clientId) + '"><span class="hint">Dari Google Cloud Console (langkah di bawah). Client ID bukan rahasia.</span></div>' +
+      '<div class="field wide"><label for="g-sheet">Tautan atau ID spreadsheet</label><input id="g-sheet" name="sheet" type="text" placeholder="https://docs.google.com/spreadsheets/d/…" value="' + esc(g.sheetId) + '"></div>' +
+      '<div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" type="submit">' + (gm ? 'Simpan dan masuk ulang' : 'Masuk dengan Google') + '</button>' +
+      (gm ? '<button class="btn outline" type="button" data-act="reload">Muat ulang dari Sheet</button><button class="btn danger" type="button" data-act="google-logout">Putuskan</button>' : '') +
+      '</div></form>' +
+      '<details style="margin-top:16px"><summary style="cursor:pointer;font-weight:600">Cara mendapatkan Client ID (sekali saja)</summary><ol style="margin:10px 0 0 18px;line-height:1.6">' +
+      '<li>Buka <strong>console.cloud.google.com</strong>, buat project baru.</li>' +
+      '<li><strong>APIs &amp; Services → Library</strong>, aktifkan <strong>Google Sheets API</strong>.</li>' +
+      '<li><strong>OAuth consent screen</strong>: tipe External, isi nama aplikasi dan email. Biarkan status Testing, lalu tambahkan semua akun Gmail Anda di <strong>Test users</strong>.</li>' +
+      '<li><strong>Credentials → Create credentials → OAuth client ID</strong>, tipe <strong>Web application</strong>.</li>' +
+      '<li>Di <strong>Authorized JavaScript origins</strong> isi <code>' + esc(origin || 'https://<username>.github.io') + '</code> (tanpa garis miring di akhir).</li>' +
+      '<li>Salin Client ID ke kolom di atas. Google akan menampilkan peringatan “aplikasi belum diverifikasi”; itu normal untuk aplikasi pribadi, pilih Lanjutkan.</li></ol>' +
+      '<p class="muted" style="margin-top:8px;font-size:13px">Izin yang diminta adalah akses ke spreadsheet (cakupan luas: semua spreadsheet di akun yang login) dan alamat email. Aplikasi hanya membuka spreadsheet yang Anda tentukan. Token login berlaku sekitar satu jam; setelah itu klik Masuk lagi.</p></details>' +
+      (gm && localCount ? '<div class="row"><button class="btn outline" type="button" data-act="upload-local">Unggah ' + local.transaksi.length + ' transaksi dan ' + local.dividen.length + ' dividen dari browser ini ke Sheet</button></div><p class="muted" style="margin-top:8px;font-size:13px">Ini mengganti seluruh isi tab transaksi dan dividen di Sheet.</p>' : '') +
+      '</div></section>';
+
+    html += '<section class="settings-block"><div><h2>Apps Script (opsional)</h2><p>Hanya perlu bila Anda ingin mencatat lewat chat dengan Claude. Cara ini memakai token, bukan login.</p></div><div>' +
       '<form id="form-conn" class="form-grid" autocomplete="off">' +
       '<div class="field wide"><label for="s-url">URL Web App</label><input id="s-url" name="url" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(st.url) + '"></div>' +
       '<div class="field wide"><label for="s-token">Token (TOKEN)</label><input id="s-token" name="token" type="password" autocomplete="off" value="' + esc(st.token) + '"><span class="hint">Sama persis dengan TOKEN di Code.gs. Disimpan hanya di browser ini. Jangan isi dengan CHAT_TOKEN.</span></div>' +
-      '<div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" type="submit">' + (sheet ? 'Simpan dan muat ulang' : 'Sambungkan') + '</button>' +
-      (sheet ? '<button class="btn outline" type="button" data-act="reload">Muat ulang dari Sheet</button><button class="btn danger" type="button" data-act="disconnect">Putuskan</button>' : '') +
+      '<div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" type="submit">' + (am ? 'Simpan dan muat ulang' : 'Sambungkan lewat Apps Script') + '</button>' +
+      (am ? '<button class="btn outline" type="button" data-act="reload">Muat ulang dari Sheet</button><button class="btn danger" type="button" data-act="disconnect">Putuskan</button>' : '') +
       '</div></form>' +
-      (sheet && localCount ? '<div class="row"><button class="btn outline" type="button" data-act="upload-local">Unggah ' + local.transaksi.length + ' transaksi dan ' + local.dividen.length + ' dividen dari browser ini ke Sheet</button></div><p class="muted" style="margin-top:8px;font-size:13px">Ini mengganti seluruh isi tab transaksi dan dividen di Sheet.</p>' : '') +
+      (am && localCount ? '<div class="row"><button class="btn outline" type="button" data-act="upload-local">Unggah ' + local.transaksi.length + ' transaksi dan ' + local.dividen.length + ' dividen dari browser ini ke Sheet</button></div>' : '') +
       '</div></section>';
 
     html += '<section class="settings-block"><div><h2>Catat lewat chat</h2><p>Tulis transaksi langsung ke Claude, misalnya “beli BBCA 10 lot harga 9000” atau “dividen TLKM 360000”.</p></div><div>' +
-      '<p style="color:var(--ink)">Claude mengirimnya ke Google Sheets Anda memakai <code>CHAT_TOKEN</code>, token terpisah yang hanya bisa menambah catatan dan membaca posisi. Tidak bisa mengubah atau menghapus data. Setelah mencatat, klik <strong>Muat ulang dari Sheet</strong> di sini untuk melihat hasilnya.</p>' +
+      '<p style="color:var(--ink)">Lewat Apps Script di atas, Claude mengirimnya ke Google Sheets Anda memakai <code>CHAT_TOKEN</code>, token terpisah yang hanya bisa menambah catatan dan membaca posisi. Tidak bisa mengubah atau menghapus data. Setelah mencatat, klik <strong>Muat ulang dari Sheet</strong> di sini untuk melihat hasilnya.</p>' +
       '<p style="margin-top:10px">Pasang <code>CHAT_TOKEN</code> di Code.gs (langkah ada di README). Token ini tidak pernah disimpan di aplikasi ini.</p></div></section>';
 
     html += '<section class="settings-block"><div><h2>Biaya broker</h2><p>Dipakai untuk mengisi fee otomatis saat mencatat transaksi. Fee tetap bisa diubah per transaksi.</p></div><div>' +
@@ -627,10 +654,13 @@
 
   function renderSync() {
     var el = $('#sync');
-    if (S.isSheet()) {
+    if (S.needLogin()) {
+      el.className = 'sync err';
+      el.innerHTML = '<span class="dot"></span>Belum masuk<br><button class="linkbtn" data-act="google-login" type="button">Masuk dengan Google</button>';
+    } else if (S.isSheet()) {
       var bad = !!state.loadError;
       el.className = 'sync ' + (bad ? 'err' : 'on');
-      el.innerHTML = '<span class="dot"></span>' + (bad ? 'Gagal terhubung ke Google Sheets' : 'Tersambung ke Google Sheets') +
+      el.innerHTML = '<span class="dot"></span>' + (bad ? 'Gagal terhubung ke Google Sheets' : 'Tersambung' + (S.mode() === 'google' && S.email() ? ' · ' + esc(S.email()) : ' ke Google Sheets')) +
         '<br><span style="opacity:.8">' + (S.prices.at ? 'Harga: ' + hhmm(S.prices.at) : 'Harga belum diperbarui') + '</span>';
     } else {
       el.className = 'sync';
@@ -939,14 +969,21 @@
     return keys;
   }
 
+  /** Google: bila token belum ada, minta login (hanya boleh dari klik pengguna). */
+  function ensureLogin() {
+    if (!S.needLogin()) return Promise.resolve();
+    return S.signIn().then(function () { return S.reload(); }).then(function () { state.loadError = ''; });
+  }
+
   function refreshPrices(manualClick) {
     if (!S.isSheet()) {
       if (manualClick) toast('Harga otomatis butuh koneksi ke Google Sheets. Buka Pengaturan.', 'err');
       return Promise.resolve();
     }
+    if (S.needLogin() && !manualClick) return Promise.resolve();
     state.refreshing = true;
     renderSync();
-    return S.fetchPrices(openKeys()).then(function () {
+    return ensureLogin().then(function () { return S.fetchPrices(openKeys()); }).then(function () {
       if (manualClick) toast('Harga diperbarui');
     }).catch(function (e) {
       toast('Gagal memperbarui harga: ' + e.message, 'err');
@@ -1026,7 +1063,7 @@
 
   function reloadFromSheet(btn) {
     return guard(btn, function () {
-      return S.reload().then(function () {
+      return ensureLogin().then(function () { return S.reload(); }).then(function () {
         state.loadError = '';
         toast('Data dimuat dari Google Sheets');
         render();
@@ -1066,6 +1103,16 @@
     },
     'price': function (b) { openPriceForm(b.dataset.key); },
     'reload': function (b) { reloadFromSheet(b); },
+    'google-login': function (b) { reloadFromSheet(b); },
+    'google-logout': function () {
+      confirmDialog('Putuskan Google?', 'Aplikasi keluar dari akun Google dan kembali ke mode lokal. Data di spreadsheet tidak dihapus.', 'Putuskan').then(function (ok) {
+        if (!ok) return;
+        S.disconnect();
+        state.loadError = '';
+        toast('Terputus dari Google');
+        render();
+      });
+    },
     'disconnect': function () {
       confirmDialog('Putuskan Google Sheets?', 'Aplikasi kembali ke mode lokal dan menampilkan data yang tersimpan di browser ini. Data di spreadsheet tidak dihapus.', 'Putuskan').then(function (ok) {
         if (!ok) return;
@@ -1168,6 +1215,24 @@
       }).then(function () { ok.disabled = false; });
       return;
     }
+    if (form.id === 'form-google') {
+      e.preventDefault();
+      var gd = new FormData(form);
+      var cid = String(gd.get('clientId') || '').trim();
+      var sh = String(gd.get('sheet') || '').trim();
+      if (location.protocol === 'file:') return toast('Login Google tidak berjalan dari file lokal. Buka lewat GitHub Pages.', 'err');
+      if (!/^[\w-]+\.apps\.googleusercontent\.com$/.test(cid)) return toast('Client ID tidak valid. Bentuknya xxxx.apps.googleusercontent.com', 'err');
+      if (!sh) return toast('Isi tautan atau ID spreadsheet.', 'err');
+      guard(form.querySelector('button[type=submit]'), function () {
+        return S.googleConnect(cid, sh).then(function () {
+          state.loadError = '';
+          toast('Masuk sebagai ' + (S.email() || 'akun Google'));
+          render();
+          return refreshPrices(false);
+        });
+      });
+      return;
+    }
     if (form.id === 'form-conn') {
       e.preventDefault();
       var fd = new FormData(form);
@@ -1233,9 +1298,9 @@
   });
 
   setInterval(function () {
-    if (!document.hidden && S.isSheet() && Date.now() - (S.prices.at || 0) > 5 * 60 * 1000) refreshPrices(false);
+    if (!document.hidden && S.isSheet() && !S.needLogin() && Date.now() - (S.prices.at || 0) > 5 * 60 * 1000) refreshPrices(false);
   }, 60 * 1000);
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && S.isSheet() && Date.now() - (S.prices.at || 0) > 5 * 60 * 1000) refreshPrices(false);
+    if (!document.hidden && S.isSheet() && !S.needLogin() && Date.now() - (S.prices.at || 0) > 5 * 60 * 1000) refreshPrices(false);
   });
 }());
