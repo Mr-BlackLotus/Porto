@@ -251,6 +251,30 @@
   }
 
   // ---------- halaman: dashboard ----------
+  /** Deretan kartu harga: kode, harga sekarang, naik/turun hari ini, dan untung/rugi posisi hari ini. */
+  function tickerStrip(m) {
+    var items = [];
+    m.list.forEach(function (mk) {
+      m.per[mk].summary.rows.forEach(function (r) {
+        if (r.hasPrice) items.push({ mk: mk, r: r, ccy: m.per[mk].ccy, rate: m.rt(mk) });
+      });
+    });
+    if (!items.length) return '';
+    items.sort(function (a, b) { return b.r.value * b.rate - a.r.value * a.rate; });
+    var liveCrypto = state.live === 'on';
+    return '<section class="ticker" aria-label="Pergerakan harga hari ini">' + items.map(function (x) {
+      var r = x.r, hasDay = !!r.prev;
+      var c = hasDay ? cls(r.dayPct, 'IDR') : 'flat';
+      var arrow = !hasDay ? '' : (r.dayPct > 0.005 ? '▲ ' : r.dayPct < -0.005 ? '▼ ' : '');
+      var day = x.rate > 0 ? moneySigned(r.dayChange * x.rate, 'IDR') : '';
+      return '<div class="tick ' + c + '"><div class="tk-top"><strong>' + esc(r.kode) + '</strong>' + pill(x.mk, true) +
+        (x.mk === 'CRYPTO' && liveCrypto && r.source === 'live' ? '<span class="live-dot" title="Live"></span>' : '') + '</div>' +
+        '<div class="tk-price">' + pxf(r.price, x.ccy) + '</div>' +
+        '<div class="tk-chg">' + (hasDay ? arrow + pct(r.dayPct) : '<span class="muted">tanpa data hari ini</span>') + '</div>' +
+        '<div class="tk-pos">' + (hasDay && day ? 'Posisi ' + day + ' hari ini' : '') + '</div></div>';
+    }).join('') + '</section>';
+  }
+
   function positionsTable(m) {
     var rows = [];
     m.list.forEach(function (mk) {
@@ -260,25 +284,29 @@
 
     if (m.all) {
       rows.sort(function (a, b) { return b.r.value * b.rate - a.r.value * a.rate; });
-      var totV = 0, totU = 0;
+      var totV = 0, totU = 0, totD = 0;
       var body = rows.map(function (x) {
         var r = x.r, v = r.value * x.rate, u = r.unrealized * x.rate;
-        totV += v; totU += u;
+        totV += v; totU += u; totD += x.r.dayChange * x.rate;
         var skipped = x.rate === 0;
+        var dc = r.dayChange * x.rate;
         return '<tr><td class="kode">' + esc(r.kode) + pill(x.mk, true) + '</td>' +
           '<td class="num">' + qtyf(r.qty, x.mk) + '</td>' +
+          '<td class="num">' + (r.hasPrice ? pxf(r.price, x.ccy) : '<span class="muted">–</span>') + '</td>' +
+          '<td class="num ' + (skipped || !r.prev ? 'flat' : cls(dc, 'IDR')) + '">' + (skipped || !r.prev ? '–' : moneySigned(dc, 'IDR') + '<span class="sub">' + pct(r.dayPct) + '</span>') + '</td>' +
           '<td class="num">' + (skipped ? '<span class="muted">–</span>' : idr(v)) + '</td>' +
           '<td class="num ' + (skipped ? 'flat' : cls(u, 'IDR')) + '">' + (skipped ? '–' : moneySigned(u, 'IDR') + '<span class="sub">' + pct(r.unrealizedPct) + '</span>') + '</td>' +
           '<td class="num">' + (r.dividend && !skipped ? idr(r.dividend * x.rate) : '<span class="muted">–</span>') + '</td></tr>';
       }).join('');
-      return '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Aset</th><th class="num">Jumlah</th><th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">Dividen / reward</th></tr></thead><tbody>' + body +
-        '</tbody><tfoot><tr><td>Total</td><td></td><td class="num">' + idr(totV) + '</td><td class="num ' + cls(totU, 'IDR') + '">' + moneySigned(totU, 'IDR') + '</td><td></td></tr></tfoot></table></div>';
+      return '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Aset</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Hari ini</th><th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">Dividen / reward</th></tr></thead><tbody>' + body +
+        '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="num ' + cls(totD, 'IDR') + '">' + (totD ? moneySigned(totD, 'IDR') : '') + '</td><td class="num">' + idr(totV) + '</td><td class="num ' + cls(totU, 'IDR') + '">' + moneySigned(totU, 'IDR') + '</td><td></td></tr></tfoot></table></div>';
     }
 
     var mk = m.sel, ccy = m.per[mk].ccy, unit = MK[mk].unit;
-    var tv = 0, tu = 0;
+    var tv = 0, tu = 0, tdc = 0;
+    rows.forEach(function (x) { tdc += x.r.dayChange; });
     return '<div class="panel table-wrap"><table class="tbl"><thead><tr>' +
-      '<th>Aset</th><th class="num">Jumlah (' + unit + ')</th><th class="num">Harga rata-rata</th><th class="num">Harga sekarang</th>' +
+      '<th>Aset</th><th class="num">Jumlah (' + unit + ')</th><th class="num">Harga rata-rata</th><th class="num">Harga sekarang</th><th class="num">Hari ini</th>' +
       '<th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">' + noun(mk) + '</th></tr></thead><tbody>' +
       rows.map(function (x) {
         var r = x.r;
@@ -294,11 +322,12 @@
           '<td class="num">' + qtyf(r.qty, mk) + '</td>' +
           '<td class="num">' + pxf(r.avg, ccy) + '</td>' +
           '<td class="num">' + priceCell + '</td>' +
+          '<td class="num ' + (r.prev ? cls(r.dayChange, ccy) : 'flat') + '">' + (r.prev ? moneySigned(r.dayChange, ccy) + '<span class="sub">' + pct(r.dayPct) + '</span>' : '–') + '</td>' +
           '<td class="num">' + money(r.value, ccy) + '</td>' +
           '<td class="num ' + cls(r.unrealized, ccy) + '">' + moneySigned(r.unrealized, ccy) + '<span class="sub">' + pct(r.unrealizedPct) + '</span></td>' +
           '<td class="num">' + (r.dividend ? money(r.dividend, ccy) : '<span class="muted">–</span>') + '</td></tr>';
       }).join('') +
-      '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="num">' + money(tv, ccy) + '</td>' +
+      '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="num ' + cls(tdc, ccy) + '">' + (tdc ? moneySigned(tdc, ccy) : '') + '</td><td class="num">' + money(tv, ccy) + '</td>' +
       '<td class="num ' + cls(tu, ccy) + '">' + moneySigned(tu, ccy) + '</td><td></td></tr></tfoot></table></div>';
   }
 
@@ -358,7 +387,7 @@
       '<div class="chart-scroll"><div class="chart">' + Charts.monthly(last12, { label: 'Profit per bulan, 12 bulan terakhir', fmt: function (n) { return money(n, ccy); } }) + '</div></div>' +
       '<p class="muted" style="font-size:13px;margin:8px 0 0">Profit jual + dividen yang diterima di bulan itu. <a href="#/bulanan">' + (m.months.length > 12 ? 'Lihat semua bulan' : 'Lihat rincian per bulan') + '</a></p></div>';
 
-    html += '<section class="hero">' + left + right + '</section>';
+    html += tickerStrip(m) + '<section class="hero">' + left + right + '</section>';
 
     if (m.all) {
       html += '<section class="section"><div class="section-head"><h2>Per pasar</h2><span class="note">Klik nama pasar untuk melihat rinciannya</span></div>' + perMarketTable(m) + '</section>';

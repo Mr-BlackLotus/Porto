@@ -297,3 +297,16 @@ code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
   .form-grid { grid-template-columns: 1fr; }
   #toasts { right: 12px; left: 12px; bottom: 84px; }
 }
+
+/* Kartu pergerakan harga hari ini */
+.ticker { display: flex; gap: 10px; overflow-x: auto; padding: 2px 0 14px; margin: 0 0 4px; scrollbar-width: thin; }
+.tick { flex: 0 0 auto; min-width: 152px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--radius); padding: 10px 12px; font-variant-numeric: tabular-nums; }
+.tick.gain { border-left-color: var(--gain); }
+.tick.loss { border-left-color: var(--loss); }
+.tk-top { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
+.tk-price { font-size: 17px; font-weight: 700; margin-top: 4px; color: var(--ink); }
+.tk-chg { font-size: 14px; font-weight: 700; margin-top: 2px; }
+.tk-pos { font-size: 12px; color: var(--muted); margin-top: 2px; min-height: 16px; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gain); box-shadow: 0 0 0 0 var(--gain); animation: livepulse 1.8s infinite; }
+@keyframes livepulse { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
