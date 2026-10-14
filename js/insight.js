@@ -222,5 +222,159 @@
     return out;
   }
 
-  return { rebuyInsight: rebuyInsight, dividendOutlook: dividendOutlook, dividendPlan: dividendPlan, valuation: valuation, analysisMetrics: analysisMetrics };
+
+  // ------------------------------------------------------------------ ringkasan otomatis (dividen, valuasi, pertumbuhan)
+  function round1(v) { return Math.round(v * 10) / 10; }
+
+  /**
+   * recs: [{date:'YYYY-MM-DD', dps, jenis?}] dari data resmi atau catatan Anda. today: 'YYYY-MM-DD'. price: harga sekarang.
+   * Mengembalikan dividen terakhir (jumlah dan % dari harga sekarang), total 12 bulan, frekuensi dan bulan pembagian.
+   */
+  function dividendSummary(recs, today, price) {
+    var t = parts(today);
+    if (!t) return null;
+    var tMs = utc(t.y, t.m, t.d), pr = num(price);
+    var list = (recs || []).map(function (x) {
+      var p = parts(x.date);
+      return p && num(x.dps) > 0 ? { ms: utc(p.y, p.m, p.d), date: day(x.date), dps: num(x.dps), month: p.m, jenis: x.jenis || '' } : null;
+    }).filter(Boolean).sort(function (a, b) { return a.ms - b.ms; });
+    var past = list.filter(function (x) { return x.ms <= tMs; });
+    if (!past.length) return { count: 0, hadRecordsWithoutDps: (recs || []).length > 0 && !list.length };
+    var last = past[past.length - 1];
+    var yr = 365 * 86400000;
+    var win1 = past.filter(function (x) { return x.ms > tMs - yr; });
+    var win2 = past.filter(function (x) { return x.ms > tMs - 2 * yr && x.ms <= tMs - yr; });
+    var basis = win1.length ? win1 : win2;
+    var n = basis.length;
+    var label = n === 1 ? 'sekali setahun' : n === 2 ? 'dua kali setahun' : n === 4 ? 'empat kali setahun (triwulanan)' : n + ' kali setahun';
+    var trailDps = win1.reduce(function (s, x) { return s + x.dps; }, 0);
+    var seen = {}, months = [];
+    past.filter(function (x) { return x.ms > tMs - 2 * yr; }).forEach(function (x) { if (!seen[x.month]) { seen[x.month] = 1; months.push(x.month); } });
+    months.sort(function (a, b) { return a - b; });
+    return {
+      count: past.length,
+      last: { date: last.date, dps: last.dps, jenis: last.jenis },
+      lastYield: pr > 0 ? last.dps / pr * 100 : null,
+      trailing: { dps: trailDps, count: win1.length },
+      annualYield: pr > 0 && trailDps > 0 ? trailDps / pr * 100 : null,
+      frequency: { count: n, label: label, fromOlder: !win1.length },
+      months: months
+    };
+  }
+
+  /**
+   * Menilai murah / wajar / mahal dari sinyal yang tersedia. ctx: { price, pe, high52, low52 }.
+   * am: hasil analysisMetrics (opsional, memberi PER ke depan dan nilai wajar). divYield: imbal dividen setahun (%) atau null.
+   */
+  function valuationVerdict(ctx, am, divYield) {
+    var price = num(ctx.price), score = 0, reasons = [], signals = 0;
+    if (!(price > 0)) return null;
+    var per = null, perSrc = '';
+    if (am && am.perFwd > 0) { per = am.perFwd; perSrc = 'PER ke depan'; }
+    else if (num(ctx.pe) > 0) { per = num(ctx.pe); perSrc = 'PER'; }
+    if (per) {
+      signals++;
+      var ptxt = perSrc + ' ' + String(round1(per)).replace('.', ',') + 'x';
+      if (per < 12) { score += 1; reasons.push(ptxt + ', tergolong rendah'); }
+      else if (per <= 20) reasons.push(ptxt + ', menengah');
+      else if (per <= 30) { score -= 1; reasons.push(ptxt + ', agak tinggi'); }
+      else { score -= 2; reasons.push(ptxt + ', tinggi'); }
+    }
+    if (am && am.scenarios && am.scenarios.length) {
+      signals++;
+      var avg = am.scenarios.reduce(function (s, x) { return s + x.mos; }, 0) / am.scenarios.length;
+      if (avg >= 15) { score += 1; reasons.push('harga ' + String(Math.round(avg)).replace('.', ',') + '% di bawah rata-rata nilai wajar skenario'); }
+      else if (avg <= -15) { score -= 1; reasons.push('harga ' + String(Math.round(Math.abs(avg))) + '% di atas rata-rata nilai wajar skenario'); }
+      else reasons.push('harga dekat rata-rata nilai wajar skenario');
+    }
+    var h = num(ctx.high52), l = num(ctx.low52);
+    var rangePos = h > l && l > 0 ? (price - l) / (h - l) : null;
+    if (rangePos != null) {
+      signals++;
+      if (rangePos <= 0.25) { score += 0.5; reasons.push('harga di seperempat bawah rentang 52 minggu'); }
+      else if (rangePos >= 0.85) { score -= 0.5; reasons.push('harga di dekat tertinggi 52 minggu'); }
+      else reasons.push('harga di tengah rentang 52 minggu');
+    }
+    if (divYield != null && divYield > 0) {
+      signals++;
+      if (divYield >= 5) { score += 0.5; reasons.push('imbal dividen ' + String(round1(divYield)).replace('.', ',') + '% tergolong tinggi'); }
+    }
+    if (!signals) return null;
+    var label = score >= 1 ? 'Murah' : score <= -1 ? 'Mahal' : 'Wajar';
+    return { label: label, tone: label === 'Murah' ? 'good' : label === 'Mahal' ? 'warn' : 'neutral', score: score, reasons: reasons,
+      confidence: signals >= 3 ? 'cukup' : signals === 2 ? 'terbatas' : 'rendah', rangePos: rangePos };
+  }
+
+  /**
+   * Pertumbuhan 12 bulan. fund: { laba: persen, pendapatan?: persen, periode, ket } (dari js/analisa.js, opsional).
+   * Pertumbuhan harga memakai harga setahun lalu dari Google Finance atau Binance.
+   */
+  function growthVerdict(price, price1y, fund) {
+    var out = { price: null, fundamental: null };
+    price = num(price); price1y = num(price1y);
+    if (price > 0 && price1y > 0) {
+      var g = pctDiff(price, price1y);
+      var lb = g >= 10 ? 'Bagus' : g <= -10 ? 'Buruk' : 'Datar';
+      out.price = { pct: g, label: lb, tone: lb === 'Bagus' ? 'good' : lb === 'Buruk' ? 'warn' : 'neutral', from: price1y };
+    }
+    if (fund && isFinite(Number(fund.laba))) {
+      var e = Number(fund.laba);
+      var lf = e >= 10 ? 'Bagus' : e >= 3 ? 'Sedang' : e >= 0 ? 'Lemah' : 'Buruk';
+      out.fundamental = { pct: e, label: lf, tone: lf === 'Bagus' ? 'good' : lf === 'Sedang' ? 'neutral' : 'warn', periode: fund.periode || '', pendapatan: fund.pendapatan, ket: fund.ket || '' };
+    }
+    return out.price || out.fundamental ? out : null;
+  }
+
+  /** Rekomendasi otomatis dari tiga sudut pandang, murni dari angka di atas (bukan AI). */
+  function autoAnalysis(x) {
+    var vv = x.valuation, ds = x.dividend, gv = x.growth, rg = x.rangePos, out = {};
+    // value investing
+    if (vv) {
+      out.value = vv.label === 'Murah' ? { label: 'Layak dicicil', tone: 'good' } : vv.label === 'Mahal' ? { label: 'Tunggu lebih murah', tone: 'warn' } : { label: 'Tahan, beli bila turun', tone: 'neutral' };
+      out.value.alasan = vv.reasons.slice();
+      if (gv && gv.fundamental && gv.fundamental.tone === 'warn') {
+        out.value.alasan.push('laba tumbuh ' + gv.fundamental.label.toLowerCase() + ' (' + String(round1(gv.fundamental.pct)).replace('.', ',') + '%), jadi beli bertahap saja');
+      }
+    } else out.value = { label: 'Data belum cukup', tone: 'neutral', alasan: ['PER dan EPS dari Google Finance belum tersedia untuk emiten ini.'] };
+    // dividen
+    if (ds && ds.count) {
+      var y = ds.annualYield;
+      out.dividen = y >= 5 ? { label: 'Menarik', tone: 'good' } : y >= 2.5 ? { label: 'Cukup', tone: 'neutral' } : { label: 'Kecil', tone: 'neutral' };
+      out.dividen.alasan = ['Imbal dividen 12 bulan terakhir ' + (y != null ? String(round1(y)).replace('.', ',') + '%' : 'belum bisa dihitung') + ' dari harga sekarang.',
+        'Dibagikan ' + ds.frequency.label + '.'];
+    } else out.dividen = { label: 'Belum ada data', tone: 'neutral', alasan: ['Belum ada data dividen untuk emiten ini.'] };
+    // trader
+    var tScore = 0, ta = [];
+    if (gv && gv.price) {
+      if (gv.price.pct >= 10) { tScore += 1; ta.push('harga naik ' + String(round1(gv.price.pct)).replace('.', ',') + '% dalam setahun'); }
+      else if (gv.price.pct <= -10) { tScore -= 1; ta.push('harga turun ' + String(round1(Math.abs(gv.price.pct))).replace('.', ',') + '% dalam setahun'); }
+      else ta.push('harga relatif datar dalam setahun');
+    }
+    if (rg != null) {
+      if (rg >= 0.9) { tScore -= 1; ta.push('harga di dekat puncak 52 minggu'); }
+      else if (rg <= 0.2) ta.push('harga di dekat dasar 52 minggu');
+    }
+    if (x.vsAvgPct != null) ta.push('harga sekarang ' + (x.vsAvgPct < 0 ? 'di bawah' : 'di atas') + ' harga rata-rata Anda ' + String(round1(Math.abs(x.vsAvgPct))).replace('.', ',') + '%');
+    if (!(gv && gv.price) && rg == null) out.trader = { label: 'Data belum cukup', tone: 'neutral', alasan: ['Harga setahun lalu dan rentang 52 minggu belum tersedia.'] };
+    else {
+      var up = gv && gv.price && gv.price.pct >= 10, down = gv && gv.price && gv.price.pct <= -10;
+      out.trader = { alasan: ta };
+      if (rg != null && rg >= 0.9) { out.trader.label = 'Dekat puncak, tunggu koreksi'; out.trader.tone = 'warn'; }
+      else if (up) { out.trader.label = 'Tren naik'; out.trader.tone = 'good'; }
+      else if (down) { out.trader.label = 'Tren turun, tunggu konfirmasi'; out.trader.tone = 'warn'; }
+      else { out.trader.label = 'Netral'; out.trader.tone = 'neutral'; }
+    }
+    var pts = (out.value.tone === 'good' ? 2 : out.value.tone === 'warn' ? -2 : 0) + (out.dividen.tone === 'good' ? 1 : 0) +
+      (out.trader.tone === 'good' ? 1 : out.trader.tone === 'warn' ? -1 : 0);
+    var known = (vv ? 1 : 0) + (ds && ds.count ? 1 : 0) + (out.trader.label !== 'Data belum cukup' ? 1 : 0);
+    out.overall = !known ? { label: 'Data belum cukup', tone: 'neutral', catatan: 'Belum ada cukup data otomatis untuk menilai emiten ini.' }
+      : pts >= 2 ? { label: 'Akumulasi bertahap', tone: 'good', catatan: 'Sebagian besar sinyal mendukung. Tetap bagi pembelian bertahap.' }
+      : pts <= -2 ? { label: 'Tunggu, jangan menambah dulu', tone: 'warn', catatan: 'Sinyal valuasi dan harga belum mendukung.' }
+      : { label: 'Pantau', tone: 'neutral', catatan: 'Sinyal campuran, belum ada alasan kuat untuk membeli atau menjual.' };
+    out.overall.sinyal = known;
+    return out;
+  }
+
+  return { rebuyInsight: rebuyInsight, dividendOutlook: dividendOutlook, dividendPlan: dividendPlan, valuation: valuation, analysisMetrics: analysisMetrics,
+    dividendSummary: dividendSummary, valuationVerdict: valuationVerdict, growthVerdict: growthVerdict, autoAnalysis: autoAnalysis };
 }));

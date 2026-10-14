@@ -360,3 +360,7 @@ ul.tight { margin: 4px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.
 ul.tight li { margin: 0 0 4px; }
 a.btn.sm { text-decoration: none; display: inline-block; }
 .panel.empty .row { margin-top: 10px; }
+
+.badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; background: var(--line); color: var(--ink); }
+.badge.good { background: color-mix(in srgb, var(--gain) 18%, transparent); color: var(--gain); }
+.badge.warn { background: color-mix(in srgb, var(--dividend) 22%, transparent); color: var(--dividend); }

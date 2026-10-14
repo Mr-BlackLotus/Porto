@@ -15,13 +15,18 @@ Aplikasi web untuk mencatat jual beli, dividen, dan memantau profit per bulan. T
 - **Catat lewat chat**: tulis ke Claude “beli BBCA 10 lot harga 9000”, catatan langsung masuk ke tab yang tepat di Sheet.
 - Ekspor/impor cadangan (JSON), ekspor CSV, tampilan gelap otomatis, nyaman di ponsel.
 
-## Analisa emiten
+## Info dan analisa otomatis
 
-Setiap emiten punya tombol **Analisa** di tabel posisi yang membuka halaman rinciannya. Di sana ada panel Analisa: rekomendasi keseluruhan, tiga sudut pandang (value investing, dividen, trader), valuasi yang dihitung ulang dengan harga sekarang, katalis, risiko, aksi korporasi, dan tautan berita.
+Tombol **Analisa** di tabel posisi membuka halaman emiten. Semua yang ada di sana tampil otomatis, tanpa tombol dan tanpa AI luar:
 
-Aplikasi ini **tidak bisa memanggil Claude sendiri**. Isi analisis disimpan di `js/analisa.js`. Cara memperbarui: tekan **Perbarui analisis** (menyalin perintah), tempel di chat Claude, lalu Claude mencari data terbaru, memperbarui `js/analisa.js`, dan push. Setelah muat ulang (Ctrl+Shift+R) hasilnya tampil. Banner "Analisis mungkin usang" muncul bila umur analisis lebih dari 14 hari atau harga bergerak 10% atau lebih sejak analisis.
+- **Informasi dividen**: dividen terakhir (jumlah dan % dari harga sekarang), potensi bila dibagikan sama, total 12 bulan, frekuensi (sekali, dua kali, triwulanan) dan bulan pembagian. Sumbernya data resmi di `js/dividends.js` bila ada, kalau tidak dari dividen yang Anda catat.
+- **Valuasi**: murah, wajar, atau mahal dari PER (Google Finance), posisi di rentang 52 minggu, imbal dividen, dan nilai wajar dari analisa bila ada.
+- **Pertumbuhan setahun**: perubahan harga 12 bulan (Google Finance untuk saham, Binance untuk kripto) dan pertumbuhan laba bila tersedia di analisa.
+- **Analisa otomatis**: rekomendasi dari sudut pandang value investing, dividen, dan trader. Ini aturan dari angka di atas, bukan AI dan bukan saran investasi.
 
-Batas: analisis bersumber dari pemberitaan publik dan bukan saran investasi. Saat ini baru BBCA yang dianalisis. Broker summary (AK, BK, dan sejenisnya) tidak ada sumber gratis yang bisa dipakai.
+Bagian **Analisa mendalam** (laporan keuangan, aksi korporasi, berita, nilai wajar) disusun Claude dari sumber publik dan disimpan di `js/analisa.js`; saat ini baru BBCA. Aplikasi tidak bisa memanggil Claude sendiri, jadi untuk emiten lain atau pembaruan, minta Claude di chat ("analisa ulang KODE") dan berkasnya diperbarui. Banner "Analisis mungkin usang" muncul bila umurnya lebih dari 14 hari atau harga bergerak 10% atau lebih.
+
+Batas: PER dan EPS dari Google Finance sering kosong untuk saham Indonesia, dan pertumbuhan laba hanya ada untuk emiten yang sudah dianalisis; selebihnya yang tampil adalah pertumbuhan harga. Broker summary (AK, BK, dan sejenisnya) tidak ada sumber gratis.
 
 ## Data dividen resmi
 

@@ -261,8 +261,7 @@
     return '<a class="emlink" href="#/emiten/' + encodeURIComponent(mk + ':' + kode) + '">' + esc(text == null ? kode : text) + '</a>';
   }
   function analyzeCell(mk, kode) {
-    var has = window.PORTO_ANALISA && window.PORTO_ANALISA[mk + ':' + kode];
-    return '<td class="acts"><a class="btn ghost sm" href="#/emiten/' + encodeURIComponent(mk + ':' + kode) + '" title="' + (has ? 'Lihat analisis' : 'Belum ada analisis, buka untuk meminta') + '">Analisa</a></td>';
+    return '<td class="acts"><a class="btn ghost sm" href="#/emiten/' + encodeURIComponent(mk + ':' + kode) + '" title="' + 'Lihat info dan analisa' + '">Analisa</a></td>';
   }
   function profilePill(key) {
     var v = S.profile(key);
@@ -697,41 +696,28 @@
     return html;
   }
 
-  // ---------- analisis (disusun Claude, tersimpan di js/analisa.js) ----------
-  function analyzePrompt(mk, kode) {
-    return 'Analisa ulang ' + kode + ' (' + MK[mk].label + ') untuk aplikasi Porto: cari laporan keuangan, aksi korporasi, dividen, berita, dan aliran asing terbaru. ' +
-      'Hitung valuasi dari sudut pandang value investing, dividen, dan trader, lalu perbarui rekomendasinya di js/analisa.js dan push ke repo Mr-BlackLotus/Porto.';
-  }
-  function analysisButton(mk, kode, label) {
-    return '<button class="btn primary" type="button" data-act="copy-analyze" data-mk="' + esc(mk) + '" data-kode="' + esc(kode) + '">' + esc(label) + '</button>';
-  }
-  function analysisPanel(key, mk, kode, price, ccy) {
+  // ---------- analisa mendalam (disusun Claude, tersimpan di js/analisa.js) ----------
+  function deepAnalysis(key, price, ccy) {
     var a = window.PORTO_ANALISA && window.PORTO_ANALISA[key];
-    var head = '<div class="section-head"><h2>Analisa</h2><span class="note">Disusun Claude dari sumber publik, bukan saran investasi</span></div>';
-    var howto = '<p class="muted src">Aplikasi ini tidak bisa memanggil Claude sendiri. Tekan tombol, tempel perintah yang tersalin ke chat Claude, lalu analisis diperbarui di repo dan muncul di sini setelah muat ulang.</p>';
-    if (!a) {
-      return '<section class="section" id="analisa">' + head + '<div class="panel empty"><h3>Belum ada analisis untuk ' + esc(kode) + '</h3>' +
-        '<p>Minta Claude menyusunnya: laporan keuangan, aksi korporasi, dividen, berita, lalu rekomendasi dari tiga sudut pandang.</p>' +
-        '<div class="row">' + analysisButton(mk, kode, 'Salin perintah analisa') + '</div></div>' + howto + '</section>';
-    }
+    if (!a) return '';
     var am = Insight.analysisMetrics(a, price, ymd(new Date()));
     var rk = a.rekomendasi || {}, ov = rk.keseluruhan || {};
-    var h = '<section class="section" id="analisa">' + head;
+    var h = '<section class="section" id="analisa"><div class="section-head"><h2>Analisa mendalam</h2><span class="note">Disusun Claude per ' + fmtDate(a.tanggal) + ' dari sumber publik, bukan saran investasi</span></div>';
     if (am && (am.stale || am.moved)) {
       var why = [];
       if (am.stale) why.push('analisis berumur ' + am.ageDays + ' hari');
       if (am.moved) why.push('harga bergerak ' + pct(am.moveSince) + ' sejak ' + fmtDate(a.hargaRujukan.tanggal));
-      h += '<div class="note-card warn" role="status" style="margin-bottom:12px"><h3>Analisis mungkin usang</h3><p>' + esc(why.join(' dan ')) + '. Perbarui sebelum mengambil keputusan.</p></div>';
+      h += '<div class="note-card warn" role="status" style="margin-bottom:12px"><h3>Analisis mungkin usang</h3><p>' + esc(why.join(' dan ')) + '. Angka valuasi di bawah tetap dihitung dengan harga sekarang, tetapi teks rekomendasi ditulis pada tanggal di atas. Minta Claude di chat untuk memperbarui.</p></div>';
     }
-    h += '<div class="verdict ' + esc(ov.tone || 'neutral') + '"><div><span class="lbl">Rekomendasi keseluruhan · keyakinan ' + esc(a.keyakinan || '-') + '</span><strong>' + esc(ov.label || '-') + '</strong></div><p>' + esc(ov.catatan || '') + '</p></div>';
-    h += '<p class="muted src" style="margin:0 0 12px">Analisis per ' + fmtDate(a.tanggal) + '. ' + esc(a.ringkasan || '') + '</p>';
+    h += '<div class="verdict ' + esc(ov.tone || 'neutral') + '"><div><span class="lbl">Rekomendasi Claude · keyakinan ' + esc(a.keyakinan || '-') + '</span><strong>' + esc(ov.label || '-') + '</strong></div><p>' + esc(ov.catatan || '') + '</p></div>';
+    h += '<p class="muted src" style="margin:0 0 12px">' + esc(a.ringkasan || '') + '</p>';
     h += '<div class="notes">' + [['value', 'Value investing'], ['dividen', 'Dividen'], ['trader', 'Trader']].map(function (x) {
       var r = rk[x[0]]; if (!r) return '';
       return '<div class="note-card ' + esc(r.tone || 'neutral') + '"><h3>' + x[1] + ': ' + esc(r.label) + '</h3><ul class="tight">' +
         (r.alasan || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>';
     }).join('') + '</div>';
     if (am && am.scenarios) {
-      h += '<div class="panel table-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Valuasi dengan harga sekarang ' + pxf(price, ccy) + '</th><th class="num">PER</th><th class="num">Nilai wajar</th><th class="num">Selisih dari harga</th></tr></thead><tbody>' +
+      h += '<div class="panel table-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Nilai wajar dengan harga sekarang ' + pxf(price, ccy) + '</th><th class="num">PER</th><th class="num">Nilai wajar</th><th class="num">Selisih dari harga</th></tr></thead><tbody>' +
         '<tr><td>Estimasi laba per lembar ' + pxf(am.eps, ccy) + '</td><td class="num">' + String(Math.round(am.perFwd * 10) / 10).replace('.', ',') + 'x</td><td class="num">–</td><td class="num">imbal laba ' + pct(am.earningsYield).replace('+', '') + '</td></tr>' +
         am.scenarios.map(function (s) {
           return '<tr><td>' + esc(s.label) + '<span class="sub muted" style="font-weight:500">' + esc(s.ket) + '</span></td><td class="num">' + String(s.per).replace('.', ',') + 'x</td><td class="num">' + pxf(s.value, ccy) + '</td><td class="num ' + cls(s.mos, 'IDR') + '">' + pct(s.mos) + '</td></tr>';
@@ -750,8 +736,7 @@
       }).join('') + '</ul></div>';
     }
     if (a.catatanData) h += '<p class="muted src">' + esc(a.catatanData) + '</p>';
-    h += '<div class="row">' + analysisButton(mk, kode, 'Perbarui analisis') + '</div>' + howto + '</section>';
-    return h;
+    return h + '</section>';
   }
 
   // ---------- halaman: rincian emiten ----------
@@ -796,30 +781,94 @@
       lead('Total profit emiten ini', '<strong>' + moneySigned(totalProfit, ccy) + '</strong>' + (totalBuy > 0 ? ' (' + pct(totalProfit / totalBuy * 100) + ')' : ''), { cls: cls(totalProfit, ccy) }) +
       '</dl></section>';
 
-    html += analysisPanel(key, mk, kode, price, ccy);
-
     // ---- info otomatis ----
     var MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    var today = ymd(new Date());
     var live = (S.prices.items && S.prices.items[key]) || {};
     var perUnit = mk === 'CRYPTO' ? 'koin' : 'lembar';
+    var isCrypto = mk === 'CRYPTO';
     var lastSellRec = trx.filter(function (t) { return t.jenis === 'JUAL'; })[0];
     var ctx = { price: price, shares: row ? row.shares : 0, avg: row ? row.avg : 0, lastSell: lastSellRec ? C.num(lastSellRec.harga) : 0,
       high52: live.high52, low52: live.low52, pe: live.pe, eps: live.eps };
     var official = window.PORTO_DIV && window.PORTO_DIV[key];
-    var plan = official && price ? Insight.dividendPlan(official, ymd(new Date()), ctx) : null;
-    var notes = [], head = '';
+    var plan = official && price ? Insight.dividendPlan(official, today, ctx) : null;
+    var rb = price ? Insight.rebuyInsight(trx, price, row ? row.avg : 0) : null;
+    var ana = window.PORTO_ANALISA && window.PORTO_ANALISA[key];
 
+    var divRecs = official ? official.items.map(function (x) { return { date: x.cum, dps: x.dps, jenis: x.jenis }; })
+      : dvs.map(function (x) { return { date: C.day(x.tanggal), dps: C.num(x.dps) }; });
+    var ds = isCrypto ? null : Insight.dividendSummary(divRecs, today, price);
+    var am = ana && price ? Insight.analysisMetrics(ana, price, today) : null;
+    var vv = isCrypto ? null : Insight.valuationVerdict({ price: price, pe: live.pe, high52: live.high52, low52: live.low52 }, am, ds && ds.annualYield);
+    var gv = price ? Insight.growthVerdict(price, live.price1y, ana && ana.pertumbuhan) : null;
+    var au = Insight.autoAnalysis({ valuation: vv, dividend: ds, growth: gv, rangePos: vv ? vv.rangePos : null, vsAvgPct: rb ? rb.vsAvgPct : null });
+
+    function pc(v) { return pct(v).replace('+', ''); }
+    function badge(b) { return '<span class="badge ' + b.tone + '">' + esc(b.label) + '</span>'; }
+    function card(title, b, items, foot) {
+      return '<div class="note-card ' + (b ? b.tone : 'neutral') + '"><h3>' + title + (b ? ' ' + badge(b) : '') + '</h3><ul class="tight">' +
+        items.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>' + (foot ? '<p class="muted src" style="margin:6px 0 0">' + foot + '</p>' : '') + '</div>';
+    }
+    var cards = [];
+
+    // 1. dividen
+    if (!isCrypto) {
+      if (ds && ds.count) {
+        var di = [];
+        di.push('Dividen terakhir' + (ds.last.jenis ? ' (' + esc(ds.last.jenis.toLowerCase()) + ')' : '') + ': <strong>' + pxf(ds.last.dps, ccy) + '</strong> per ' + perUnit + ', ' + fmtDate(ds.last.date) +
+          (ds.lastYield != null ? ' = <strong>' + pc(ds.lastYield) + '</strong> dari harga sekarang.' : '.'));
+        di.push('Bila dibagikan sama seperti itu lagi, potensinya ' + (ds.lastYield != null ? pc(ds.lastYield) : '–') + ' per pembayaran. ' +
+          (ds.trailing.count ? 'Total 12 bulan terakhir ' + pxf(ds.trailing.dps, ccy) + ' (' + ds.trailing.count + ' kali) = <strong>' + pc(ds.annualYield) + '</strong> per tahun dari harga sekarang' +
+            (plan && plan.yieldOnCost != null ? ', ' + pc(plan.yieldOnCost) + ' dari harga rata-rata Anda' : '') + '.' : 'Tidak ada pembayaran dalam 12 bulan terakhir.'));
+        di.push('Dibagikan <strong>' + ds.frequency.label + '</strong>' + (ds.frequency.fromOlder ? ' (berdasarkan tahun sebelumnya)' : '') + ', biasanya di bulan ' +
+          ds.months.map(function (m) { return MONTHS[m - 1]; }).join(', ') + '.');
+        if (row && ds.trailing.dps > 0 && row.shares > 0) di.push('Dengan ' + qtyf(row.qty, mk) + ' ' + MK[mk].unit + ' Anda, setara sekitar ' + money(ds.trailing.dps * row.shares, ccy) + ' per tahun sebelum pajak.');
+        cards.push(card('Informasi dividen', au.dividen, di, official ? 'Data resmi per ' + fmtDate(official.asOf) + ' dari pemberitaan pengumuman emiten.' : 'Dihitung dari dividen yang Anda catat, bukan data resmi emiten; bisa tidak lengkap.'));
+      } else {
+        cards.push(card('Informasi dividen', null, [ds && ds.hadRecordsWithoutDps ? 'Catatan dividen Anda belum mengisi kolom per lembar, jadi persentasenya belum bisa dihitung.' : 'Belum ada data dividen untuk ' + esc(kode) + '. Dividen yang Anda catat di menu Dividen akan dipakai otomatis.']));
+      }
+    }
+
+    // 2. valuasi
+    if (isCrypto) {
+      cards.push(card('Valuasi', null, ['Aset kripto tidak punya laba atau dividen, jadi murah atau mahalnya tidak bisa dinilai dengan PER.']));
+    } else if (vv) {
+      var vi = vv.reasons.map(esc);
+      if (vv.rangePos != null && live.high52 > 0) vi.push('Rentang 52 minggu ' + pxf(live.low52, ccy) + ' sampai ' + pxf(live.high52, ccy) + '.');
+      cards.push(card('Valuasi: ' + (vv.label === 'Murah' ? 'murah' : vv.label === 'Mahal' ? 'mahal' : 'wajar'), { label: vv.label, tone: vv.tone }, vi,
+        'Keyakinan data ' + vv.confidence + '. Patokan umum, bandingkan dengan emiten sejenis. Sumber: Google Finance' + (ana && am && am.perFwd ? ' dan estimasi laba dari analisa' : '') + ', bisa tertunda.'));
+    } else {
+      cards.push(card('Valuasi', null, ['Belum ada PER, EPS, atau rentang 52 minggu dari Google Finance untuk emiten ini, jadi murah atau mahal belum bisa dinilai. Coba tekan Perbarui harga.']));
+    }
+
+    // 3. pertumbuhan
+    if (gv) {
+      var gi = [];
+      if (gv.fundamental) gi.push('Laba: <strong>' + pct(gv.fundamental.pct) + '</strong> (' + esc(gv.fundamental.periode) + '), tergolong ' + gv.fundamental.label.toLowerCase() + '. ' + esc(gv.fundamental.ket));
+      else gi.push('Pertumbuhan laba belum tersedia otomatis untuk emiten ini.');
+      if (gv.price) gi.push('Harga: dari ' + pxf(gv.price.from, ccy) + ' setahun lalu ke ' + pxf(price, ccy) + ' = <strong class="' + cls(gv.price.pct, 'IDR') + '">' + pct(gv.price.pct) + '</strong> (' + gv.price.label.toLowerCase() + ').');
+      var gb = gv.fundamental ? { label: gv.fundamental.label, tone: gv.fundamental.tone } : { label: gv.price.label + ' (harga)', tone: gv.price.tone };
+      cards.push(card('Pertumbuhan setahun terakhir', gb, gi, gv.fundamental ? 'Laba dari pemberitaan laporan keuangan. Harga dari ' + (isCrypto ? 'Binance' : 'Google Finance') + '.' : 'Ini pertumbuhan harga, bukan laba usaha.'));
+    } else {
+      cards.push(card('Pertumbuhan setahun terakhir', null, ['Harga setahun lalu belum tersedia. Tekan Perbarui harga; untuk saham datanya dari Google Finance.']));
+    }
+
+    var overall = au.overall;
+    var head = '<div class="verdict ' + overall.tone + '"><div><span class="lbl">Rekomendasi otomatis · aturan dari angka, bukan AI</span><strong>' + esc(overall.label) + '</strong></div><p>' + esc(overall.catatan) +
+      ' Value: <strong>' + esc(au.value.label) + '</strong> · Dividen: <strong>' + esc(au.dividen.label) + '</strong> · Trader: <strong>' + esc(au.trader.label) + '</strong>.</p></div>';
+    var lens = '<div class="notes" style="margin-top:12px">' + [['value', 'Value investing'], ['dividen', 'Dividen'], ['trader', 'Trader']].map(function (x) {
+      var r = au[x[0]];
+      return '<div class="note-card ' + r.tone + '"><h3>' + x[1] + ': ' + esc(r.label) + '</h3><ul class="tight">' + r.alasan.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>';
+    }).join('') + '</div>';
+
+    html += '<section class="section"><div class="section-head"><h2>Info otomatis</h2><span class="note">Dihitung otomatis dari data yang tersedia, bukan saran investasi</span></div>' +
+      '<div class="notes">' + cards.join('') + '</div></section>';
+    html += '<section class="section"><div class="section-head"><h2>Analisa otomatis</h2><span class="note">Langsung tampil, diperbarui bersama harga</span></div>' + head + lens + '</section>';
+    html += deepAnalysis(key, price, ccy);
+
+    // ---- waktu beli dan posisi Anda ----
+    var notes = [];
     if (plan) {
-      var dc = plan.decision;
-      var VT = { layak: ['Layak dipertimbangkan', 'good'], netral: ['Netral', 'neutral'], tunggu: ['Tunggu koreksi', 'warn'] }[dc.verdict];
-      head = '<div class="verdict ' + VT[1] + '"><div><span class="lbl">Penilaian ringkas</span><strong>' + VT[0] + '</strong></div><p>' +
-        (dc.reasons.length ? esc(dc.reasons.join('; ')) + '.' : 'Belum ada sinyal yang menonjol.') + '</p></div>';
-      var l = plan.last;
-      notes.push({ tone: 'neutral', title: 'Dividen resmi terakhir',
-        text: l ? '<strong>' + esc(l.jenis) + ' ' + pxf(l.dps, ccy) + '</strong> per ' + perUnit + ': cum date ' + fmtDate(l.cum) + ', dibayar ' + fmtDate(l.pay) + '. ' +
-          'Total 12 bulan terakhir <strong>' + pxf(plan.trailing.dps, ccy) + '</strong> per ' + perUnit + ' (' + plan.trailing.count + ' kali) = <strong>' + pct(plan.yieldTrailing).replace('+', '') + '</strong> dari harga sekarang' +
-          (plan.yieldOnCost != null ? ', ' + pct(plan.yieldOnCost).replace('+', '') + ' dari harga rata-rata Anda' : '') + '.' +
-          (row ? ' Dengan ' + qtyf(row.qty, mk) + ' ' + MK[mk].unit + ' Anda, setara sekitar ' + money(plan.trailing.dps * row.shares, ccy) + ' per tahun sebelum pajak.' : '') : 'Belum ada dividen yang sudah lewat.' });
       var nx = plan.next;
       if (nx) {
         var kindLbl = { resmi: 'Jadwal resmi', rencana: 'Rencana emiten', perkiraan: 'Perkiraan dari pola' }[nx.kind];
@@ -838,28 +887,12 @@
         notes.push({ tone: w.state === 'inside' ? 'good' : 'neutral', title: 'Waktu beli untuk dividen',
           text: wtxt + ' Saham harus dimiliki sebelum cum date agar berhak menerima dividen. Membeli lebih awal memberi waktu mendapat harga yang lebih baik.' });
       }
-      var val = Insight.valuation(ctx, plan.yieldTrailing);
-      if (val) {
-        var bits = [];
-        if (val.range) bits.push('Rentang 52 minggu ' + pxf(val.range.low, ccy) + ' – ' + pxf(val.range.high, ccy) + '; harga sekarang ' + pct(val.range.fromHigh).replace('+', '') + ' dari tertinggi dan ' + pct(val.range.fromLow) + ' dari terendah.');
-        if (val.pe) bits.push('P/E ' + String(Math.round(val.pe * 10) / 10).replace('.', ',') + ' (' + val.peLabel + ' menurut patokan umum)' + (val.earningsYield ? ', imbal laba ' + pct(val.earningsYield).replace('+', '') : '') + '.');
-        notes.push({ tone: 'neutral', title: 'Valuasi ringkas', text: bits.join(' ') + ' Sumber: Google Finance, bisa tertunda.' });
-      }
-    } else {
-      // tanpa data dividen resmi: pakai pola dari catatan sendiri
-      var ol = Insight.dividendOutlook(dvs, ymd(new Date()), 90);
-      if (!ol.count) {
-        notes.push({ tone: 'neutral', title: 'Riwayat dividen', text: 'Belum ada data dividen resmi untuk ' + esc(kode) + ' di aplikasi ini, dan belum ada dividen yang Anda catat.' });
-      } else {
-        var pat = ol.months.slice().sort(function (a, b) { return a.month - b.month; }).map(function (x) { return MONTHS[x.month - 1]; }).join(', ');
-        notes.push({ tone: 'neutral', title: 'Pola dividen dari catatan Anda', text: 'Tercatat ' + ol.count + ' kali (terakhir ' + fmtDate(ol.last) + '), biasanya di bulan: ' + pat + '. Ini bukan jadwal resmi emiten.' });
-        ol.upcoming.forEach(function (u) {
-          notes.push({ tone: 'good', title: 'Dividen kemungkinan dalam 90 hari', text: 'Biasanya sekitar ' + MONTHS[u.month - 1] + ' (perkiraan ' + fmtDate(u.nextDate) + '). Cek jadwal resmi emiten sebelum membeli.' });
-        });
-      }
+    } else if (!isCrypto) {
+      var ol = Insight.dividendOutlook(dvs, today, 90);
+      ol.upcoming && ol.upcoming.forEach(function (u) {
+        notes.push({ tone: 'good', title: 'Dividen kemungkinan dalam 90 hari', text: 'Biasanya sekitar ' + MONTHS[u.month - 1] + ' (perkiraan ' + fmtDate(u.nextDate) + '), dari pola catatan Anda. Cek jadwal resmi emiten sebelum membeli.' });
+      });
     }
-
-    var rb = price ? Insight.rebuyInsight(trx, price, row ? row.avg : 0) : null;
     if (rb) {
       notes.push({ tone: rb.tone, title: 'Dibanding harga jual terakhir',
         text: 'Terakhir Anda jual ' + fmtDate(rb.lastSell.tanggal) + ' di ' + pxf(rb.lastSell.harga, ccy) + '. Sekarang ' + pxf(price, ccy) + ', selisih <strong class="' + cls(rb.diffPct, 'IDR') + '">' + pct(rb.diffPct) + '</strong>: ' + rb.message });
@@ -869,16 +902,13 @@
         text: 'Harga sekarang ' + (rb.vsAvgPct < 0 ? 'di bawah' : 'di atas') + ' harga rata-rata (' + pxf(row.avg, ccy) + ') sebesar <strong class="' + cls(rb.vsAvgPct, 'IDR') + '">' + pct(rb.vsAvgPct) + '</strong>. ' +
           (rb.vsAvgPct < 0 ? 'Membeli lagi akan menurunkan harga rata-rata.' : 'Membeli lagi akan menaikkan harga rata-rata.') });
     }
-    notes.push({ tone: 'neutral', title: 'Belum tersedia otomatis',
-      text: 'Aliran broker (smart money), berita, laporan keuangan terbaru, dan target analis tidak punya sumber data gratis yang bisa dipanggil dari aplikasi ini. Minta Claude di chat, misalnya “analisis ' + esc(kode) + '”, untuk ringkasan dari sumber publik.' });
-
+    notes.push({ tone: 'neutral', title: 'Belum tersedia',
+      text: 'Aliran broker (smart money, broker summary) tidak punya sumber data gratis yang bisa dipanggil dari aplikasi ini, jadi tidak ikut dinilai.' });
     var srcHtml = official ? '<p class="muted src">Data dividen per ' + fmtDate(official.asOf) + ' dari pemberitaan pengumuman resmi (bukan umpan langsung): ' +
       official.sumber.map(function (x) { return '<a href="' + esc(x.u) + '" target="_blank" rel="noopener">' + esc(x.t) + '</a>'; }).join(' · ') + '. Cek tanggal asli di keterbukaan informasi emiten sebelum bertransaksi.</p>' : '';
-
-    html += '<section class="section"><div class="section-head"><h2>Info otomatis</h2><span class="note">Berbasis aturan sederhana dan data yang tersedia, bukan saran investasi</span></div>' + head +
-      '<div class="notes">' + notes.map(function (n) {
-        return '<div class="note-card ' + n.tone + '"><h3>' + esc(n.title) + '</h3><p>' + n.text + '</p></div>';
-      }).join('') + '</div>' + srcHtml + '</section>';
+    html += '<section class="section"><div class="section-head"><h2>Waktu beli dan posisi Anda</h2></div><div class="notes">' + notes.map(function (n) {
+      return '<div class="note-card ' + n.tone + '"><h3>' + esc(n.title) + '</h3><p>' + n.text + '</p></div>';
+    }).join('') + '</div>' + srcHtml + '</section>';
 
     // ---- riwayat ----
     html += '<section class="section"><div class="section-head"><h2>Riwayat jual beli</h2><span class="note">' + trx.length + ' transaksi</span></div>';
@@ -1468,20 +1498,6 @@
     'edit-trx': function (b) { openTrxForm(b.dataset.id); },
     'edit-div': function (b) { openDivForm(b.dataset.id); },
     'market': function (b) { setMarket(b.dataset.m); },
-    'copy-analyze': function (b) {
-      var text = analyzePrompt(b.dataset.mk, b.dataset.kode);
-      function fallback() {
-        var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;opacity:0';
-        document.body.appendChild(ta); ta.select();
-        var ok = false; try { ok = document.execCommand('copy'); } catch (err) {}
-        document.body.removeChild(ta);
-        if (ok) toast('Perintah analisa tersalin. Tempel di chat Claude.');
-        else window.prompt('Salin perintah ini lalu tempel di chat Claude:', text);
-      }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(function () { toast('Perintah analisa tersalin. Tempel di chat Claude.'); }, fallback);
-      } else fallback();
-    },
     'set-profile': function (b) { S.setProfile(b.dataset.key, b.dataset.v); render(); },
     'prof-tab': function (b) { state.profTab = b.dataset.t; render(); },
     'del-trx': function (b) {

@@ -95,3 +95,77 @@ console.log('Semua tes insight lulus.');
   assert.strictEqual(I.analysisMetrics(null, 1, '2026-01-01'), null);
   console.log('Semua tes analisis lulus.');
 }
+
+// ---- ringkasan otomatis ----
+{
+  const T = '2026-10-14';
+  // dividen: triwulanan, 4 kali dalam 12 bulan
+  const recs = [
+    { date: '2024-11-20', dps: 50 }, { date: '2025-03-20', dps: 250 }, { date: '2025-12-02', dps: 55 },
+    { date: '2026-03-27', dps: 281 }, { date: '2026-06-15', dps: 20 }, { date: '2026-08-28', dps: 25 }, { date: '2026-12-10', dps: 30 }
+  ];
+  const d = I.dividendSummary(recs, T, 6000);
+  assert.strictEqual(d.last.dps, 25); assert.strictEqual(d.last.date, '2026-08-28');
+  assert.ok(Math.abs(d.lastYield - 25 / 6000 * 100) < 1e-9);
+  assert.strictEqual(d.trailing.count, 4); assert.strictEqual(d.trailing.dps, 55 + 281 + 20 + 25);
+  assert.ok(Math.abs(d.annualYield - 381 / 6000 * 100) < 1e-9);
+  assert.strictEqual(d.frequency.count, 4); assert.ok(/triwulanan/.test(d.frequency.label));
+  assert.deepStrictEqual(d.months, [3, 6, 8, 11, 12], 'bulan 12 masa depan tidak dihitung; 2 tahun terakhir');
+  // sekali setahun
+  const once = I.dividendSummary([{ date: '2025-06-10', dps: 100 }, { date: '2026-06-09', dps: 120 }], T, 2000);
+  assert.strictEqual(once.frequency.label, 'sekali setahun'); assert.deepStrictEqual(once.months, [6]);
+  assert.ok(Math.abs(once.annualYield - 6) < 1e-9);
+  // dua kali
+  assert.strictEqual(I.dividendSummary([{ date: '2025-11-01', dps: 10 }, { date: '2026-05-01', dps: 10 }], T, 1000).frequency.label, 'dua kali setahun');
+  // tanpa data / tanpa dps
+  assert.strictEqual(I.dividendSummary([], T, 100).count, 0);
+  assert.strictEqual(I.dividendSummary([{ date: '2026-01-01', dps: 0 }], T, 100).hadRecordsWithoutDps, true);
+  // dividen terakhir sudah lebih dari 12 bulan: frekuensi dari tahun sebelumnya, total 12 bulan = 0
+  const old = I.dividendSummary([{ date: '2025-01-10', dps: 5 }], T, 100);
+  assert.strictEqual(old.trailing.dps, 0); assert.strictEqual(old.annualYield, null); assert.strictEqual(old.frequency.fromOlder, true);
+
+  // valuasi
+  let vv = I.valuationVerdict({ price: 100, pe: 8, high52: 150, low52: 95 }, null, 6);
+  assert.strictEqual(vv.label, 'Murah');
+  vv = I.valuationVerdict({ price: 100, pe: 35, high52: 105, low52: 60 }, null, null);
+  assert.strictEqual(vv.label, 'Mahal');
+  vv = I.valuationVerdict({ price: 100, pe: 15, high52: 150, low52: 60 }, null, null);
+  assert.strictEqual(vv.label, 'Wajar'); assert.strictEqual(vv.confidence, 'terbatas');
+  assert.strictEqual(I.valuationVerdict({ price: 100 }, null, null), null);
+  assert.strictEqual(I.valuationVerdict({ price: 0, pe: 5 }, null, null), null);
+  // dengan skenario nilai wajar (BBCA)
+  global.window = {}; eval(require('fs').readFileSync(__dirname + '/../js/analisa.js', 'utf8'));
+  const a = global.window.PORTO_ANALISA['ID:BBCA'];
+  const am = I.analysisMetrics(a, 6225, T);
+  vv = I.valuationVerdict({ price: 6225 }, am, 6.1);
+  assert.strictEqual(vv.label, 'Murah'); assert.ok(vv.reasons.some(r => /PER ke depan/.test(r)));
+  vv = I.valuationVerdict({ price: 12000 }, I.analysisMetrics(a, 12000, T), 3);
+  assert.strictEqual(vv.label, 'Mahal');
+
+  // pertumbuhan
+  let g = I.growthVerdict(125, 100, null);
+  assert.strictEqual(g.price.label, 'Bagus'); assert.strictEqual(g.fundamental, null);
+  assert.strictEqual(I.growthVerdict(80, 100, null).price.label, 'Buruk');
+  assert.strictEqual(I.growthVerdict(103, 100, null).price.label, 'Datar');
+  g = I.growthVerdict(6225, 8500, a.pertumbuhan);
+  assert.strictEqual(g.fundamental.label, 'Lemah'); assert.strictEqual(g.price.label, 'Buruk');
+  assert.strictEqual(I.growthVerdict(1, 0, null), null);
+  assert.strictEqual(I.growthVerdict(1, 1, { laba: -5 }).fundamental.label, 'Buruk');
+  assert.strictEqual(I.growthVerdict(1, 1, { laba: 25 }).fundamental.label, 'Bagus');
+
+  // analisa otomatis
+  const dsum = I.dividendSummary(recs, T, 6225);
+  const gv = I.growthVerdict(6225, 8500, a.pertumbuhan);
+  const vv2 = I.valuationVerdict({ price: 6225 }, am, dsum.annualYield);
+  let au = I.autoAnalysis({ valuation: vv2, dividend: dsum, growth: gv, rangePos: 0.1, vsAvgPct: -5 });
+  assert.strictEqual(au.value.tone, 'good'); assert.strictEqual(au.dividen.label, 'Menarik');
+  assert.strictEqual(au.trader.label, 'Tren turun, tunggu konfirmasi');
+  assert.strictEqual(au.overall.label, 'Akumulasi bertahap'); // 2 + 1 - 1 = 2
+  au = I.autoAnalysis({ valuation: I.valuationVerdict({ price: 100, pe: 40 }, null, null), dividend: { count: 0 }, growth: null, rangePos: 0.95 });
+  assert.strictEqual(au.overall.tone, 'warn'); assert.strictEqual(au.trader.label, 'Dekat puncak, tunggu koreksi');
+  au = I.autoAnalysis({ valuation: null, dividend: null, growth: null, rangePos: null });
+  assert.strictEqual(au.overall.label, 'Data belum cukup');
+  au = I.autoAnalysis({ valuation: I.valuationVerdict({ price: 100, pe: 8 }, null, 7), dividend: I.dividendSummary([{ date: '2026-03-01', dps: 8 }], T, 100), growth: I.growthVerdict(130, 100, null), rangePos: 0.5 });
+  assert.strictEqual(au.overall.label, 'Akumulasi bertahap'); assert.strictEqual(au.dividen.label, 'Menarik');
+  console.log('Semua tes ringkasan otomatis lulus.');
+}

@@ -17,6 +17,7 @@
   var USERINFO = 'https://www.googleapis.com/oauth2/v3/userinfo';
   var BINANCE = 'https://data-api.binance.vision/api/v3/ticker/24hr';
   var SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
+  var KLINES = 'https://data-api.binance.vision/api/v3/klines';
   var DRIVE = 'https://www.googleapis.com/drive/v3/files';
   var SHEET_TITLE = 'Porto';
   var MARKETS = ['ID', 'US', 'CRYPTO'];
@@ -425,6 +426,15 @@
           } else missing.push(k);
         });
         return { prices: prices, missing: missing };
+      }).then(function (res) {
+        // harga setahun lalu dari kandel harian (gagal tidak menghalangi harga utama)
+        var from = Date.now() - 365 * 86400000;
+        return Promise.all(Object.keys(res.prices).map(function (k) {
+          return doFetch(KLINES + '?symbol=' + enc(k.split(':')[1] + 'USDT') + '&interval=1d&limit=1&startTime=' + from)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) { var c = j && j[0] && Number(j[0][4]); if (c > 0) res.prices[k].price1y = c; })
+            .catch(function () {});
+        })).then(function () { return res; });
       }).catch(function () {
         // Binance tidak terjangkau (jaringan, pemblokiran, CORS): pakai GOOGLEFINANCE
         return { prices: {}, missing: keys };
@@ -451,15 +461,17 @@
         var row = [r.key, '=GOOGLEFINANCE("' + r.sym + '")', '=GOOGLEFINANCE("' + r.sym + '"' + sep + '"closeyest")'];
         // ringkasan valuasi untuk saham: tertinggi/terendah 52 minggu, P/E, EPS (bisa kosong untuk sebagian emiten)
         EXTRA.forEach(function (a) { row.push(r.stock ? '=GOOGLEFINANCE("' + r.sym + '"' + sep + '"' + a + '")' : ''); });
+        // harga penutupan sekitar setahun lalu (untuk menilai pertumbuhan harga 12 bulan)
+        row.push(r.stock ? '=IFERROR(INDEX(GOOGLEFINANCE("' + r.sym + '"' + sep + '"close"' + sep + 'TODAY()-365' + sep + 'TODAY()-358),2,2),"")' : '');
         return row;
       });
-      return req('POST', base + '/values:batchClear', { ranges: [a1(PRICE_TAB, 'A2:G')] }).then(function () {
-        return req('PUT', base + '/values/' + enc(a1(PRICE_TAB, 'A2:G' + (rows.length + 1))) + '?valueInputOption=USER_ENTERED', { values: values });
+      return req('POST', base + '/values:batchClear', { ranges: [a1(PRICE_TAB, 'A2:H')] }).then(function () {
+        return req('PUT', base + '/values/' + enc(a1(PRICE_TAB, 'A2:H' + (rows.length + 1))) + '?valueInputOption=USER_ENTERED', { values: values });
       });
     }
 
     function readFormulas(rows) {
-      return req('GET', base + '/values/' + enc(a1(PRICE_TAB, 'A2:G' + (rows.length + 1))) + '?valueRenderOption=UNFORMATTED_VALUE').then(function (j) {
+      return req('GET', base + '/values/' + enc(a1(PRICE_TAB, 'A2:H' + (rows.length + 1))) + '?valueRenderOption=UNFORMATTED_VALUE').then(function (j) {
         return (j && j.values) || [];
       });
     }
@@ -504,6 +516,7 @@
                 var v = a[3 + j];
                 if (typeof v === 'number' && isFinite(v) && v !== 0) prices[r.key][name] = v;
               });
+              if (typeof a[7] === 'number' && a[7] > 0) prices[r.key].price1y = a[7];
             }
             else errors[r.key] = 'Tidak ditemukan';
           });

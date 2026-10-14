@@ -8,6 +8,7 @@ window.PORTO_ANALISA = {
     tanggal: '2026-10-13',
     hargaRujukan: { nilai: 6225, tanggal: '2026-09-28', sumber: 'Penutupan 28 Sep 2026 (Romisaputra)' },
     keyakinan: 'Sedang',
+    pertumbuhan: { periode: '8 bulan 2026 dibanding 2025', laba: 2.85, ket: 'Laba bersih Rp40,17 T; semester I hanya +1,7% dan Agustus +13,1%. Pendapatan bunga bersih hampir datar.' },
     ringkasan: 'Bank berkualitas tinggi (ROE sekitar 24%, NPL 1,9%, dana murah) yang harganya sudah turun jauh dari awal tahun, sementara laba hanya tumbuh 2–3% karena margin bunga tertekan. Margin mulai pulih sejak Juli, ada buyback dan dividen interim triwulanan. Dari sisi nilai dan dividen menarik untuk dikumpulkan bertahap; dari sisi pergerakan harga tren masih turun dan aliran asing belum konsisten.',
     rekomendasi: {
       keseluruhan: { label: 'Akumulasi bertahap', tone: 'good', catatan: 'Bagi pembelian dalam 3 tahap, bukan sekaligus. Nilai dan dividen mendukung, momentum harga belum.' },

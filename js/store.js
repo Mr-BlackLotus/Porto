@@ -384,7 +384,7 @@
       return remote().prices(keys).then(function (j) {
         var items = Object.assign({}, prices.items);
         Object.keys(j.prices || {}).forEach(function (k) {
-          if (j.prices[k] && j.prices[k].price > 0) items[k] = j.prices[k];
+          if (j.prices[k] && j.prices[k].price > 0) items[k] = Object.assign({}, items[k], j.prices[k]);
         });
         prices = { at: Date.now(), items: items, errors: j.errors || {}, fx: j.fx > 0 ? j.fx : prices.fx };
         save(KEY_PRICES, prices);
@@ -395,7 +395,7 @@
     /** Harga real-time dari WebSocket (tidak menimpa waktu pembaruan REST). */
     setLive: function (key, tick) {
       prices.items = prices.items || {};
-      prices.items[key] = tick;
+      prices.items[key] = Object.assign({}, prices.items[key], tick);
     },
     savePrices: function () { save(KEY_PRICES, prices); },
     /** Kunci pasar dengan pengaturan Google/Apps Script tersedia atau tidak, untuk tampilan. */
