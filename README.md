@@ -24,7 +24,7 @@ Tombol **Analisa** di tabel posisi membuka halaman emiten. Semua yang ada di san
 - **Pertumbuhan setahun**: perubahan harga 12 bulan (Google Finance untuk saham, Binance untuk kripto) dan pertumbuhan laba bila tersedia di analisa.
 - **Analisa otomatis**: rekomendasi dari sudut pandang value investing, dividen, dan trader. Ini aturan dari angka di atas, bukan AI dan bukan saran investasi.
 
-Bagian **Analisa mendalam** (laporan keuangan, aksi korporasi, berita, nilai wajar) disusun Claude dari sumber publik dan disimpan di `js/analisa.js`; saat ini baru BBCA. Aplikasi tidak bisa memanggil Claude sendiri, jadi untuk emiten lain atau pembaruan, minta Claude di chat ("analisa ulang KODE") dan berkasnya diperbarui. Banner "Analisis mungkin usang" muncul bila umurnya lebih dari 14 hari atau harga bergerak 10% atau lebih.
+Bagian **Analisa mendalam** ada di setiap emiten. Untuk emiten tanpa riset, isinya dihitung otomatis: nilai wajar kasar (PER 10, 15, 20 kali dari EPS, dan imbal dividen bila dividennya besar), tabel data, serta katalis dan risiko dari sinyal angka. Untuk emiten yang sudah diriset Claude (saat ini BBCA), isinya laporan keuangan, aksi korporasi, berita, dan nilai wajar dari target analis, disimpan di `js/analisa.js`. Aplikasi tidak bisa memanggil Claude sendiri, jadi untuk emiten lain atau pembaruan, minta Claude di chat ("analisa ulang KODE") dan berkasnya diperbarui. Banner "Analisis mungkin usang" muncul bila umurnya lebih dari 14 hari atau harga bergerak 10% atau lebih.
 
 Batas: PER dan EPS dari Google Finance sering kosong untuk saham Indonesia, dan pertumbuhan laba hanya ada untuk emiten yang sudah dianalisis; selebihnya yang tampil adalah pertumbuhan harga. Broker summary (AK, BK, dan sejenisnya) tidak ada sumber gratis.
 

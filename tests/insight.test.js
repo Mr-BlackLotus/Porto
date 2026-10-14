@@ -169,3 +169,23 @@ console.log('Semua tes insight lulus.');
   assert.strictEqual(au.overall.label, 'Akumulasi bertahap'); assert.strictEqual(au.dividen.label, 'Menarik');
   console.log('Semua tes ringkasan otomatis lulus.');
 }
+
+// ---- nilai wajar dan sinyal untuk emiten tanpa riset ----
+{
+  let f = I.fairValue({ price: 1000, eps: 100, dps: 60 });
+  assert.strictEqual(f.rows.length, 6);
+  assert.strictEqual(f.rows[0].value, 1000); assert.strictEqual(f.rows[1].value, 1500); assert.strictEqual(f.rows[2].value, 2000);
+  assert.ok(Math.abs(f.rows[3].value - 750) < 1e-9 && Math.abs(f.rows[4].value - 1000) < 1e-9 && Math.abs(f.rows[5].value - 1500) < 1e-9);
+  assert.ok(Math.abs(f.rows[1].mos - 50) < 1e-9);
+  f = I.fairValue({ price: 1000, pe: 10 }); assert.strictEqual(f.eps, 100); assert.strictEqual(f.rows.length, 3);
+  assert.strictEqual(I.fairValue({ price: 1000, eps: 100, dps: 5 }).rows.length, 3, 'dividen di bawah 2% tidak dipakai');
+  assert.strictEqual(I.fairValue({ price: 1000 }), null);
+  assert.strictEqual(I.fairValue({ price: 0, eps: 5 }), null);
+  const vv = I.valuationVerdict({ price: 100, pe: 8, high52: 150, low52: 95 }, null, 6);
+  const sl = I.signalLists({ valuation: vv, dividend: I.dividendSummary([{ date: '2026-03-01', dps: 6 }], '2026-10-14', 100), growth: I.growthVerdict(70, 100, null), vsAvgPct: -15, isStock: true });
+  assert.ok(sl.katalis.length >= 2 && sl.risiko.length >= 2, JSON.stringify(sl));
+  assert.ok(sl.risiko.some(r => /turun/.test(r)));
+  const none = I.signalLists({ valuation: null, dividend: { count: 0 }, growth: null, isStock: true });
+  assert.strictEqual(none.katalis.length, 0); assert.strictEqual(none.risiko.length, 1);
+  console.log('Semua tes nilai wajar lulus.');
+}

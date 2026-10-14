@@ -325,6 +325,56 @@
     return out.price || out.fundamental ? out : null;
   }
 
+  /**
+   * Nilai wajar kasar untuk emiten tanpa riset: EPS dikali PER patokan, dan dividen setahun dibagi target imbal hasil.
+   * ctx: { price, eps, pe, dps }  (dps = total dividen 12 bulan terakhir per lembar). Hasilnya asumsi umum, bukan target analis.
+   */
+  function fairValue(ctx) {
+    var price = num(ctx.price);
+    if (!(price > 0)) return null;
+    var eps = num(ctx.eps) > 0 ? num(ctx.eps) : (num(ctx.pe) > 0 ? price / num(ctx.pe) : 0);
+    var rows = [];
+    if (eps > 0) {
+      [['Konservatif', 10], ['Wajar', 15], ['Optimis', 20]].forEach(function (x) {
+        var v = eps * x[1];
+        rows.push({ label: x[0], basis: 'PER ' + x[1] + 'x dari laba per lembar', value: v, mos: pctDiff(v, price) });
+      });
+    }
+    var dps = num(ctx.dps);
+    if (dps > 0 && dps / price >= 0.02) { // emiten berdividen kecil dinilai dari laba, bukan dividen
+      [['Konservatif', 8], ['Wajar', 6], ['Optimis', 4]].forEach(function (x) {
+        var v = dps / (x[1] / 100);
+        rows.push({ label: x[0], basis: 'imbal dividen ' + x[1] + '% dari dividen setahun', value: v, mos: pctDiff(v, price) });
+      });
+    }
+    return rows.length ? { eps: eps, dps: dps, rows: rows } : null;
+  }
+
+  /** Katalis (sinyal positif) dan risiko (sinyal negatif) yang bisa disimpulkan dari angka. */
+  function signalLists(x) {
+    var kat = [], ris = [];
+    var vv = x.valuation, ds = x.dividend, gv = x.growth;
+    if (vv) vv.reasons.forEach(function (r) {
+      if (/rendah|di bawah rata-rata|seperempat bawah|tergolong tinggi/.test(r)) kat.push(r.charAt(0).toUpperCase() + r.slice(1) + '.');
+      else if (/tinggi|di atas rata-rata|dekat tertinggi|agak tinggi/.test(r)) ris.push(r.charAt(0).toUpperCase() + r.slice(1) + '.');
+    });
+    if (ds && ds.count) {
+      if (ds.annualYield >= 4) kat.push('Dividen rutin ' + ds.frequency.label + ' dengan imbal ' + String(round1(ds.annualYield)).replace('.', ',') + '% per tahun.');
+      if (!ds.trailing.count) ris.push('Tidak ada dividen dalam 12 bulan terakhir.');
+    } else if (x.isStock) ris.push('Belum ada data dividen, jadi tidak ada penopang dari dividen.');
+    if (gv && gv.fundamental) {
+      if (gv.fundamental.pct >= 10) kat.push('Laba tumbuh ' + String(round1(gv.fundamental.pct)).replace('.', ',') + '%.');
+      else if (gv.fundamental.pct < 3) ris.push('Pertumbuhan laba lemah (' + String(round1(gv.fundamental.pct)).replace('.', ',') + '%).');
+    }
+    if (gv && gv.price) {
+      if (gv.price.pct >= 10) kat.push('Harga naik ' + String(round1(gv.price.pct)).replace('.', ',') + '% dalam setahun, tren positif.');
+      else if (gv.price.pct <= -10) ris.push('Harga turun ' + String(round1(Math.abs(gv.price.pct))).replace('.', ',') + '% dalam setahun, tren belum berbalik.');
+    }
+    if (x.vsAvgPct != null && x.vsAvgPct < -10) ris.push('Posisi Anda sedang rugi lebih dari 10% dari harga rata-rata.');
+    if (x.vsAvgPct != null && x.vsAvgPct < -3) kat.push('Harga di bawah rata-rata Anda; membeli lagi menurunkan harga rata-rata.');
+    return { katalis: kat, risiko: ris };
+  }
+
   /** Rekomendasi otomatis dari tiga sudut pandang, murni dari angka di atas (bukan AI). */
   function autoAnalysis(x) {
     var vv = x.valuation, ds = x.dividend, gv = x.growth, rg = x.rangePos, out = {};
@@ -376,5 +426,5 @@
   }
 
   return { rebuyInsight: rebuyInsight, dividendOutlook: dividendOutlook, dividendPlan: dividendPlan, valuation: valuation, analysisMetrics: analysisMetrics,
-    dividendSummary: dividendSummary, valuationVerdict: valuationVerdict, growthVerdict: growthVerdict, autoAnalysis: autoAnalysis };
+    dividendSummary: dividendSummary, valuationVerdict: valuationVerdict, growthVerdict: growthVerdict, autoAnalysis: autoAnalysis, fairValue: fairValue, signalLists: signalLists };
 }));

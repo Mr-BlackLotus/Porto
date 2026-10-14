@@ -739,6 +739,30 @@
     return h + '</section>';
   }
 
+  /** Analisa mendalam untuk emiten yang belum diriset Claude: semuanya dihitung dari data yang ada. */
+  function autoDeepSection(o) {
+    var ccy = o.ccy, price = o.price, h = '<section class="section" id="analisa"><div class="section-head"><h2>Analisa mendalam</h2><span class="note">Dihitung otomatis dari data yang tersedia, bukan saran investasi</span></div>';
+    if (o.isCrypto) {
+      h += '<div class="panel empty"><p>Nilai wajar berbasis laba atau dividen tidak berlaku untuk aset kripto.</p></div>';
+    } else if (o.fair) {
+      h += '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Nilai wajar dengan harga sekarang ' + pxf(price, ccy) + '</th><th class="num">Nilai wajar</th><th class="num">Selisih dari harga</th></tr></thead><tbody>' +
+        o.fair.rows.map(function (r) {
+          return '<tr><td>' + esc(r.label) + '<span class="sub muted" style="font-weight:500">' + esc(r.basis) + '</span></td><td class="num">' + pxf(r.value, ccy) + '</td><td class="num ' + cls(r.mos, 'IDR') + '">' + pct(r.mos) + '</td></tr>';
+        }).join('') + '</tbody></table></div><p class="muted src">Asumsi umum (PER 10, 15, 20 kali; imbal dividen 8, 6, 4 persen hanya bila dividen setahun minimal 2% dari harga), bukan target analis. Cocokkan dengan rata-rata sektor emitennya.</p>';
+    } else {
+      h += '<div class="panel empty"><p>Nilai wajar belum bisa dihitung: laba per lembar (EPS) dan dividen emiten ini belum tersedia.</p></div>';
+    }
+    var m = o.metrics.filter(Boolean);
+    if (m.length) h += '<div class="panel table-wrap" style="margin-top:12px"><table class="tbl"><tbody>' + m.map(function (x) { return '<tr><td>' + esc(x[0]) + '</td><td>' + x[1] + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    function list(title, items, empty) {
+      return '<div class="note-card ' + (title === 'Katalis' ? 'good' : 'warn') + '"><h3>' + title + '</h3><ul class="tight">' +
+        (items.length ? items : [empty]).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>';
+    }
+    h += '<div class="notes" style="margin-top:12px">' + list('Katalis', o.sig.katalis, 'Belum ada sinyal positif yang menonjol dari data yang ada.') + list('Risiko', o.sig.risiko, 'Belum ada sinyal negatif yang menonjol dari data yang ada.') + '</div>';
+    h += '<p class="muted src">Berita, laporan keuangan terbaru, dan aksi korporasi ' + esc(o.kode) + ' belum diriset. Minta Claude di chat, “analisa ' + esc(o.kode) + '”, untuk menambahkan bagian itu.</p>';
+    return h + '</section>';
+  }
+
   // ---------- halaman: rincian emiten ----------
   function viewEmiten(m) {
     var key = state.arg, pp = key.split(':'), mk = pp[0], kode = pp[1];
@@ -864,7 +888,22 @@
     html += '<section class="section"><div class="section-head"><h2>Info otomatis</h2><span class="note">Dihitung otomatis dari data yang tersedia, bukan saran investasi</span></div>' +
       '<div class="notes">' + cards.join('') + '</div></section>';
     html += '<section class="section"><div class="section-head"><h2>Analisa otomatis</h2><span class="note">Langsung tampil, diperbarui bersama harga</span></div>' + head + lens + '</section>';
-    html += deepAnalysis(key, price, ccy);
+    if (ana) html += deepAnalysis(key, price, ccy);
+    else {
+      var fair = isCrypto ? null : Insight.fairValue({ price: price, eps: live.eps, pe: live.pe, dps: ds ? ds.trailing.dps : 0 });
+      var sig = Insight.signalLists({ valuation: vv, dividend: ds, growth: gv, vsAvgPct: rb ? rb.vsAvgPct : null, isStock: !isCrypto });
+      var fmtN = function (v) { return String(Math.round(v * 10) / 10).replace('.', ','); };
+      html += autoDeepSection({ kode: kode, ccy: ccy, price: price, isCrypto: isCrypto, fair: fair, sig: sig, metrics: [
+        price ? ['Harga sekarang', pxf(price, ccy)] : null,
+        row && row.avg ? ['Harga rata-rata Anda', pxf(row.avg, ccy)] : null,
+        live.pe > 0 ? ['PER', fmtN(live.pe) + 'x'] : null,
+        fair && fair.eps ? ['Laba per lembar (EPS)', pxf(fair.eps, ccy)] : null,
+        live.high52 > 0 && live.low52 > 0 ? ['Rentang 52 minggu', pxf(live.low52, ccy) + ' sampai ' + pxf(live.high52, ccy)] : null,
+        gv && gv.price ? ['Harga setahun lalu', pxf(gv.price.from, ccy) + ' (' + pct(gv.price.pct) + ')'] : null,
+        ds && ds.count ? ['Dividen 12 bulan terakhir', pxf(ds.trailing.dps, ccy) + ' per ' + perUnit + (ds.annualYield != null ? ' = ' + pc(ds.annualYield) : '')] : null,
+        ds && ds.count ? ['Frekuensi dividen', esc(ds.frequency.label)] : null
+      ] });
+    }
 
     // ---- waktu beli dan posisi Anda ----
     var notes = [];
