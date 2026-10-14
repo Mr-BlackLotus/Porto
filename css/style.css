@@ -354,3 +354,9 @@ a.tick:hover { background: var(--line-soft); }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--petrol); }
 .tabs .cnt { font-size: 12px; background: var(--line-soft); border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
 .seg.sm button { padding: 4px 10px; font-size: 13px; }
+
+/* analisa */
+ul.tight { margin: 4px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.55; }
+ul.tight li { margin: 0 0 4px; }
+a.btn.sm { text-decoration: none; display: inline-block; }
+.panel.empty .row { margin-top: 10px; }

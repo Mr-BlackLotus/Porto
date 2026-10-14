@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261017">
+  <link rel="stylesheet" href="css/style.css?v=20261018">
 </head>
 <body>
   <a class="skip" href="#view">Lewati ke konten</a>
@@ -45,19 +45,20 @@
   <dialog id="dlg"></dialog>
   <div id="toasts" aria-live="polite"></div>
 
-  <script src="js/config.js?v=20261017"></script>
-  <script src="js/calc.js?v=20261017"></script>
-  <script src="js/dividends.js?v=20261017"></script>
-  <script src="js/insight.js?v=20261017"></script>
-  <script src="js/live.js?v=20261017"></script>
-  <script src="js/gsheets.js?v=20261017"></script>
-  <script src="js/store.js?v=20261017"></script>
-  <script src="js/charts.js?v=20261017"></script>
-  <script src="js/app.js?v=20261017"></script>
+  <script src="js/config.js?v=20261018"></script>
+  <script src="js/calc.js?v=20261018"></script>
+  <script src="js/dividends.js?v=20261018"></script>
+  <script src="js/insight.js?v=20261018"></script>
+  <script src="js/analisa.js?v=20261018"></script>
+  <script src="js/live.js?v=20261018"></script>
+  <script src="js/gsheets.js?v=20261018"></script>
+  <script src="js/store.js?v=20261018"></script>
+  <script src="js/charts.js?v=20261018"></script>
+  <script src="js/app.js?v=20261018"></script>
   <script>
     /* Bila browser masih memegang salinan lama, muat ulang sekali setelah build terbaru terdeteksi. */
     (function () {
-      var BUILD = '20261017';
+      var BUILD = '20261018';
       try {
         fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
           if (v && v.build && v.build !== BUILD && sessionStorage.getItem('porto.reloaded') !== v.build) {

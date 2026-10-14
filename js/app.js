@@ -260,6 +260,10 @@
   function emLink(mk, kode, text) {
     return '<a class="emlink" href="#/emiten/' + encodeURIComponent(mk + ':' + kode) + '">' + esc(text == null ? kode : text) + '</a>';
   }
+  function analyzeCell(mk, kode) {
+    var has = window.PORTO_ANALISA && window.PORTO_ANALISA[mk + ':' + kode];
+    return '<td class="acts"><a class="btn ghost sm" href="#/emiten/' + encodeURIComponent(mk + ':' + kode) + '" title="' + (has ? 'Lihat analisis' : 'Belum ada analisis, buka untuk meminta') + '">Analisa</a></td>';
+  }
   function profilePill(key) {
     var v = S.profile(key);
     return v ? '<span class="pill prof-' + v + ' mini">' + PROFIL_LABEL[v] + '</span>' : '';
@@ -331,17 +335,17 @@
           '<td class="num">' + (r.hasPrice ? pxf(r.price, x.ccy) : '<span class="muted">–</span>') + '</td>' +
           '<td class="num">' + (skipped ? '<span class="muted">–</span>' : idr(v)) + '</td>' +
           '<td class="num ' + (skipped ? 'flat' : cls(u, 'IDR')) + '">' + (skipped ? '–' : moneySigned(u, 'IDR') + '<span class="sub">' + pct(r.unrealizedPct) + '</span>') + '</td>' +
-          '<td class="num">' + (r.dividend && !skipped ? idr(r.dividend * x.rate) : '<span class="muted">–</span>') + '</td></tr>';
+          '<td class="num">' + (r.dividend && !skipped ? idr(r.dividend * x.rate) : '<span class="muted">–</span>') + '</td>' + analyzeCell(x.mk, r.kode) + '</tr>';
       }).join('');
-      return '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Aset</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">Dividen / reward</th></tr></thead><tbody>' + body +
-        '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="num">' + idr(totV) + '</td><td class="num ' + cls(totU, 'IDR') + '">' + moneySigned(totU, 'IDR') + '</td><td></td></tr></tfoot></table></div>';
+      return '<div class="panel table-wrap"><table class="tbl"><thead><tr><th>Aset</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">Dividen / reward</th><th></th></tr></thead><tbody>' + body +
+        '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="num">' + idr(totV) + '</td><td class="num ' + cls(totU, 'IDR') + '">' + moneySigned(totU, 'IDR') + '</td><td></td><td></td></tr></tfoot></table></div>';
     }
 
     var mk = m.sel, ccy = m.per[mk].ccy, unit = MK[mk].unit;
     var tv = 0, tu = 0;
     return '<div class="panel table-wrap"><table class="tbl"><thead><tr>' +
       '<th>Aset</th><th class="num">Jumlah (' + unit + ')</th><th class="num">Harga rata-rata</th><th class="num">Harga sekarang</th>' +
-      '<th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">' + noun(mk) + '</th></tr></thead><tbody>' +
+      '<th class="num">Nilai</th><th class="num">Profit / rugi</th><th class="num">' + noun(mk) + '</th><th></th></tr></thead><tbody>' +
       rows.map(function (x) {
         var r = x.r;
         tv += r.value; tu += r.unrealized;
@@ -358,10 +362,10 @@
           '<td class="num">' + priceCell + '</td>' +
           '<td class="num">' + money(r.value, ccy) + '</td>' +
           '<td class="num ' + cls(r.unrealized, ccy) + '">' + moneySigned(r.unrealized, ccy) + '<span class="sub">' + pct(r.unrealizedPct) + '</span></td>' +
-          '<td class="num">' + (r.dividend ? money(r.dividend, ccy) : '<span class="muted">–</span>') + '</td></tr>';
+          '<td class="num">' + (r.dividend ? money(r.dividend, ccy) : '<span class="muted">–</span>') + '</td>' + analyzeCell(mk, r.kode) + '</tr>';
       }).join('') +
       '</tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="num">' + money(tv, ccy) + '</td>' +
-      '<td class="num ' + cls(tu, ccy) + '">' + moneySigned(tu, ccy) + '</td><td></td></tr></tfoot></table></div>';
+      '<td class="num ' + cls(tu, ccy) + '">' + moneySigned(tu, ccy) + '</td><td></td><td></td></tr></tfoot></table></div>';
   }
 
   function perMarketTable(m) {
@@ -693,6 +697,63 @@
     return html;
   }
 
+  // ---------- analisis (disusun Claude, tersimpan di js/analisa.js) ----------
+  function analyzePrompt(mk, kode) {
+    return 'Analisa ulang ' + kode + ' (' + MK[mk].label + ') untuk aplikasi Porto: cari laporan keuangan, aksi korporasi, dividen, berita, dan aliran asing terbaru. ' +
+      'Hitung valuasi dari sudut pandang value investing, dividen, dan trader, lalu perbarui rekomendasinya di js/analisa.js dan push ke repo Mr-BlackLotus/Porto.';
+  }
+  function analysisButton(mk, kode, label) {
+    return '<button class="btn primary" type="button" data-act="copy-analyze" data-mk="' + esc(mk) + '" data-kode="' + esc(kode) + '">' + esc(label) + '</button>';
+  }
+  function analysisPanel(key, mk, kode, price, ccy) {
+    var a = window.PORTO_ANALISA && window.PORTO_ANALISA[key];
+    var head = '<div class="section-head"><h2>Analisa</h2><span class="note">Disusun Claude dari sumber publik, bukan saran investasi</span></div>';
+    var howto = '<p class="muted src">Aplikasi ini tidak bisa memanggil Claude sendiri. Tekan tombol, tempel perintah yang tersalin ke chat Claude, lalu analisis diperbarui di repo dan muncul di sini setelah muat ulang.</p>';
+    if (!a) {
+      return '<section class="section" id="analisa">' + head + '<div class="panel empty"><h3>Belum ada analisis untuk ' + esc(kode) + '</h3>' +
+        '<p>Minta Claude menyusunnya: laporan keuangan, aksi korporasi, dividen, berita, lalu rekomendasi dari tiga sudut pandang.</p>' +
+        '<div class="row">' + analysisButton(mk, kode, 'Salin perintah analisa') + '</div></div>' + howto + '</section>';
+    }
+    var am = Insight.analysisMetrics(a, price, ymd(new Date()));
+    var rk = a.rekomendasi || {}, ov = rk.keseluruhan || {};
+    var h = '<section class="section" id="analisa">' + head;
+    if (am && (am.stale || am.moved)) {
+      var why = [];
+      if (am.stale) why.push('analisis berumur ' + am.ageDays + ' hari');
+      if (am.moved) why.push('harga bergerak ' + pct(am.moveSince) + ' sejak ' + fmtDate(a.hargaRujukan.tanggal));
+      h += '<div class="note-card warn" role="status" style="margin-bottom:12px"><h3>Analisis mungkin usang</h3><p>' + esc(why.join(' dan ')) + '. Perbarui sebelum mengambil keputusan.</p></div>';
+    }
+    h += '<div class="verdict ' + esc(ov.tone || 'neutral') + '"><div><span class="lbl">Rekomendasi keseluruhan · keyakinan ' + esc(a.keyakinan || '-') + '</span><strong>' + esc(ov.label || '-') + '</strong></div><p>' + esc(ov.catatan || '') + '</p></div>';
+    h += '<p class="muted src" style="margin:0 0 12px">Analisis per ' + fmtDate(a.tanggal) + '. ' + esc(a.ringkasan || '') + '</p>';
+    h += '<div class="notes">' + [['value', 'Value investing'], ['dividen', 'Dividen'], ['trader', 'Trader']].map(function (x) {
+      var r = rk[x[0]]; if (!r) return '';
+      return '<div class="note-card ' + esc(r.tone || 'neutral') + '"><h3>' + x[1] + ': ' + esc(r.label) + '</h3><ul class="tight">' +
+        (r.alasan || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>';
+    }).join('') + '</div>';
+    if (am && am.scenarios) {
+      h += '<div class="panel table-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Valuasi dengan harga sekarang ' + pxf(price, ccy) + '</th><th class="num">PER</th><th class="num">Nilai wajar</th><th class="num">Selisih dari harga</th></tr></thead><tbody>' +
+        '<tr><td>Estimasi laba per lembar ' + pxf(am.eps, ccy) + '</td><td class="num">' + String(Math.round(am.perFwd * 10) / 10).replace('.', ',') + 'x</td><td class="num">–</td><td class="num">imbal laba ' + pct(am.earningsYield).replace('+', '') + '</td></tr>' +
+        am.scenarios.map(function (s) {
+          return '<tr><td>' + esc(s.label) + '<span class="sub muted" style="font-weight:500">' + esc(s.ket) + '</span></td><td class="num">' + String(s.per).replace('.', ',') + 'x</td><td class="num">' + pxf(s.value, ccy) + '</td><td class="num ' + cls(s.mos, 'IDR') + '">' + pct(s.mos) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    function list(title, items) {
+      return items && items.length ? '<div class="note-card"><h3>' + title + '</h3><ul class="tight">' + items.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' : '';
+    }
+    h += '<div class="notes" style="margin-top:12px">' + list('Katalis', a.katalis) + list('Risiko', a.risiko) + list('Aksi korporasi', a.aksi) + '</div>';
+    if (a.metrik && a.metrik.length) {
+      h += '<div class="panel table-wrap" style="margin-top:12px"><table class="tbl"><tbody>' + a.metrik.map(function (x) { return '<tr><td>' + esc(x.k) + '</td><td>' + esc(x.v) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    }
+    if (a.berita && a.berita.length) {
+      h += '<div class="note-card" style="margin-top:12px"><h3>Berita dan sumber</h3><ul class="tight">' + a.berita.map(function (b) {
+        return '<li><a href="' + esc(b.u) + '" target="_blank" rel="noopener">' + esc(b.t) + '</a> <span class="muted">' + fmtDate(b.tgl) + '</span></li>';
+      }).join('') + '</ul></div>';
+    }
+    if (a.catatanData) h += '<p class="muted src">' + esc(a.catatanData) + '</p>';
+    h += '<div class="row">' + analysisButton(mk, kode, 'Perbarui analisis') + '</div>' + howto + '</section>';
+    return h;
+  }
+
   // ---------- halaman: rincian emiten ----------
   function viewEmiten(m) {
     var key = state.arg, pp = key.split(':'), mk = pp[0], kode = pp[1];
@@ -734,6 +795,8 @@
       lead(noun(mk) + ' diterima', moneySigned(divTotal, ccy), { cls: divTotal > 0 ? 'gain' : 'flat' }) +
       lead('Total profit emiten ini', '<strong>' + moneySigned(totalProfit, ccy) + '</strong>' + (totalBuy > 0 ? ' (' + pct(totalProfit / totalBuy * 100) + ')' : ''), { cls: cls(totalProfit, ccy) }) +
       '</dl></section>';
+
+    html += analysisPanel(key, mk, kode, price, ccy);
 
     // ---- info otomatis ----
     var MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -1405,6 +1468,20 @@
     'edit-trx': function (b) { openTrxForm(b.dataset.id); },
     'edit-div': function (b) { openDivForm(b.dataset.id); },
     'market': function (b) { setMarket(b.dataset.m); },
+    'copy-analyze': function (b) {
+      var text = analyzePrompt(b.dataset.mk, b.dataset.kode);
+      function fallback() {
+        var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta); ta.select();
+        var ok = false; try { ok = document.execCommand('copy'); } catch (err) {}
+        document.body.removeChild(ta);
+        if (ok) toast('Perintah analisa tersalin. Tempel di chat Claude.');
+        else window.prompt('Salin perintah ini lalu tempel di chat Claude:', text);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { toast('Perintah analisa tersalin. Tempel di chat Claude.'); }, fallback);
+      } else fallback();
+    },
     'set-profile': function (b) { S.setProfile(b.dataset.key, b.dataset.v); render(); },
     'prof-tab': function (b) { state.profTab = b.dataset.t; render(); },
     'del-trx': function (b) {

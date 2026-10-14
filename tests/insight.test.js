@@ -74,3 +74,24 @@ console.log('Semua tes insight lulus.');
   assert.strictEqual(I.valuation({ price: 1 }, null), null);
   console.log('Semua tes dividen resmi lulus.');
 }
+
+// ---- analisis ----
+{
+  global.window = {};
+  eval(require('fs').readFileSync(__dirname + '/../js/analisa.js', 'utf8'));
+  const a = global.window.PORTO_ANALISA['ID:BBCA'];
+  assert.ok(a.rekomendasi.keseluruhan.label && a.sumber === undefined);
+  ['value', 'dividen', 'trader'].forEach(k => assert.ok(a.rekomendasi[k].alasan.length >= 2, k));
+  a.berita.forEach(b => assert.ok(/^https:\/\//.test(b.u) && /^\d{4}-\d{2}-\d{2}$/.test(b.tgl)));
+  const m = I.analysisMetrics(a, 6000, '2026-10-13');
+  assert.strictEqual(m.ageDays, 0); assert.strictEqual(m.stale, false);
+  assert.ok(Math.abs(m.perFwd - 6000 / 489) < 1e-9);
+  assert.strictEqual(m.scenarios.length, 3);
+  assert.ok(Math.abs(m.scenarios[1].value - 489 * 16.7) < 1e-6);
+  assert.ok(m.scenarios[1].mos > 30 && m.scenarios[1].mos < 40, 'upside ke 8.165 dari 6.000');
+  assert.strictEqual(m.moved, false);
+  assert.strictEqual(I.analysisMetrics(a, 5000, '2026-11-20').stale, true);
+  assert.strictEqual(I.analysisMetrics(a, 5000, '2026-11-20').moved, true, 'harga turun lebih dari 10% dari rujukan');
+  assert.strictEqual(I.analysisMetrics(null, 1, '2026-01-01'), null);
+  console.log('Semua tes analisis lulus.');
+}

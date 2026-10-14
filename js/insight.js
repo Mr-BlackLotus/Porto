@@ -199,5 +199,28 @@
     return Object.keys(out).length ? out : null;
   }
 
-  return { rebuyInsight: rebuyInsight, dividendOutlook: dividendOutlook, dividendPlan: dividendPlan, valuation: valuation };
+  /** Hitung ulang angka analisis dengan harga sekarang. a: entri js/analisa.js. */
+  function analysisMetrics(a, price, today) {
+    if (!a) return null;
+    price = num(price);
+    var t = parts(today), d = parts(a.tanggal);
+    var age = t && d ? daysBetween(utc(d.y, d.m, d.d), utc(t.y, t.m, t.d)) : null;
+    var eps = a.input && num(a.input.eps) > 0 ? num(a.input.eps) : 0;
+    var out = { ageDays: age, stale: age != null && age > 14, eps: eps };
+    if (a.hargaRujukan && num(a.hargaRujukan.nilai) > 0 && price > 0) {
+      out.moveSince = pctDiff(price, num(a.hargaRujukan.nilai));
+      out.moved = Math.abs(out.moveSince) >= 10;
+    }
+    if (eps > 0 && price > 0) {
+      out.perFwd = price / eps;
+      out.earningsYield = eps / price * 100;
+      out.scenarios = ((a.input.kelipatan) || []).map(function (k) {
+        var v = eps * num(k.per);
+        return { label: k.label, per: num(k.per), ket: k.ket || '', value: v, mos: pctDiff(v, price) };
+      });
+    }
+    return out;
+  }
+
+  return { rebuyInsight: rebuyInsight, dividendOutlook: dividendOutlook, dividendPlan: dividendPlan, valuation: valuation, analysisMetrics: analysisMetrics };
 }));

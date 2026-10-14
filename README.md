@@ -15,6 +15,14 @@ Aplikasi web untuk mencatat jual beli, dividen, dan memantau profit per bulan. T
 - **Catat lewat chat**: tulis ke Claude “beli BBCA 10 lot harga 9000”, catatan langsung masuk ke tab yang tepat di Sheet.
 - Ekspor/impor cadangan (JSON), ekspor CSV, tampilan gelap otomatis, nyaman di ponsel.
 
+## Analisa emiten
+
+Setiap emiten punya tombol **Analisa** di tabel posisi yang membuka halaman rinciannya. Di sana ada panel Analisa: rekomendasi keseluruhan, tiga sudut pandang (value investing, dividen, trader), valuasi yang dihitung ulang dengan harga sekarang, katalis, risiko, aksi korporasi, dan tautan berita.
+
+Aplikasi ini **tidak bisa memanggil Claude sendiri**. Isi analisis disimpan di `js/analisa.js`. Cara memperbarui: tekan **Perbarui analisis** (menyalin perintah), tempel di chat Claude, lalu Claude mencari data terbaru, memperbarui `js/analisa.js`, dan push. Setelah muat ulang (Ctrl+Shift+R) hasilnya tampil. Banner "Analisis mungkin usang" muncul bila umur analisis lebih dari 14 hari atau harga bergerak 10% atau lebih sejak analisis.
+
+Batas: analisis bersumber dari pemberitaan publik dan bukan saran investasi. Saat ini baru BBCA yang dianalisis. Broker summary (AK, BK, dan sejenisnya) tidak ada sumber gratis yang bisa dipakai.
+
 ## Data dividen resmi
 
 `js/dividends.js` berisi jadwal dan nominal dividen per emiten yang dihimpun dari pemberitaan pengumuman resmi (bukan umpan data langsung). Tambah emiten dengan mengikuti format BBCA, atau minta Claude menambahkannya. Cek tanggal asli di keterbukaan informasi emiten/IDX sebelum bertransaksi. Emiten tanpa data resmi memakai pola dari dividen yang Anda catat sendiri.
